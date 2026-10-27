@@ -18,6 +18,10 @@ npm run dev        # http://localhost:5173
 npm run build      # static site in dist/
 ```
 
+## Deploy
+
+Pushes to `main` build the site and publish it to GitHub Pages (`.github/workflows/pages.yml`). Enable it once under Settings → Pages → Source: **GitHub Actions**.
+
 ## Test
 
 ```sh
