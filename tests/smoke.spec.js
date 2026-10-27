@@ -10,7 +10,7 @@ test('renders every view without errors', async ({ page }) => {
   page.on('requestfailed', r => { if (!isFont(r.url())) errors.push(`request failed: ${r.url()}`); });
 
   await page.goto('/');
-  await expect(page.locator('#view canvas')).toBeVisible();
+  await expect(page.locator('#view canvas:not(.compass)')).toBeVisible();
   await page.waitForTimeout(800);
   await page.screenshot({ path: 'test-results/slice.png' });
 

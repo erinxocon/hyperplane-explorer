@@ -846,6 +846,40 @@ function main() {
   const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
   const stackTags = document.getElementById('stack-tags');
   let last = performance.now();
+  // Compass: the four world axes as seen from your orbit camera. An arrow's length is how much of that axis
+  // lies in your slice; w is mostly out of it until you tilt, so it shows as a short, dashed stub at first.
+  const compass = document.getElementById('compass'), cctx = compass.getContext('2d');
+  const AXES = [['x', 0, '--ink'], ['y', 1, '--ink'], ['z', 2, '--ink'], ['w', 3, '--accent']];
+  const _cv = new THREE.Vector3(), _cm = new THREE.Matrix4();
+  function drawCompass() {
+    const dpr = Math.min(2, window.devicePixelRatio || 1), size = Math.round(compass.clientWidth * dpr);
+    if (compass.width !== size) compass.width = compass.height = size;
+    const c = size / 2, L = c * 0.62;
+    cctx.setTransform(1, 0, 0, 1, 0, 0); cctx.clearRect(0, 0, size, size);
+    cctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const mid = compass.clientWidth / 2, len = L / dpr;
+    _cm.extractRotation(camera.matrixWorldInverse);
+    cctx.font = '11px ' + css.getPropertyValue('--mono'); cctx.textAlign = 'center'; cctx.textBaseline = 'middle'; cctx.lineCap = 'round';
+    cctx.fillStyle = css.getPropertyValue('--muted'); cctx.globalAlpha = 0.5; cctx.beginPath(); cctx.arc(mid, mid, 2, 0, 7); cctx.fill();
+    const arrows = AXES.map(([name, i, tok]) => {
+      const e = [0, 0, 0, 0]; e[i] = 1;
+      const out = Math.abs(dot(e, S.A)); // how far this axis points out of the slice
+      _cv.set(dot(e, S.R), dot(e, S.U), -dot(e, S.F)).applyMatrix4(_cm);
+      return { name, tok, out, x: _cv.x, y: -_cv.y, z: _cv.z };
+    }).sort((a, b) => a.z - b.z); // draw far arrows first
+    const stubs = arrows.filter(a => Math.hypot(a.x, a.y) < 0.35).reverse(); // end-on or out of the slice: label them in a row below
+    for (const a of arrows) {
+      const col = css.getPropertyValue(a.tok).trim(), ex = mid + a.x * len, ey = mid + a.y * len;
+      cctx.strokeStyle = cctx.fillStyle = col; cctx.globalAlpha = 0.35 + 0.65 * (1 - a.out);
+      cctx.lineWidth = 1.6; cctx.setLineDash(a.out > 0.5 ? [3, 3] : []);
+      cctx.beginPath(); cctx.moveTo(mid, mid); cctx.lineTo(ex, ey); cctx.stroke(); cctx.setLineDash([]);
+      const d = Math.hypot(a.x, a.y), k = stubs.indexOf(a);
+      if (k >= 0) cctx.fillText(a.name + (a.out > 0.5 ? '⊥' : '·'), mid + (k - (stubs.length - 1) / 2) * 22, mid + 24);
+      else cctx.fillText(a.name, ex + (a.x / d) * 9, ey + (a.y / d) * 9);
+    }
+    cctx.globalAlpha = 1;
+  }
+
   function frame(now) {
     const dt = Math.min(0.05, (now - last) / 1000); last = now;
     for (const code of active.keys()) act(code, dt);
@@ -930,6 +964,7 @@ function main() {
       o.uni.uPV.value.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
       if (!reduceMotion) o.uni.uSpin.value += dt * 0.12;
     }
+    drawCompass();
     renderer.render(scene, camera);
     requestAnimationFrame(frame);
   }
