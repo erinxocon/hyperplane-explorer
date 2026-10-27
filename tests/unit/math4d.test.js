@@ -1,11 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ident, rot, mm, transpose, det, inv, slerp } from '../../src/math4d.js';
+import { ident, rot, mm, transpose, inv, slerp } from '../../src/math4d.js';
 
 const close = (a, b, eps = 1e-9) => a.forEach((x, i) => assert.ok(Math.abs(x - b[i]) < eps, `index ${i}: ${x} vs ${b[i]}`));
 
 test('transpose of a rotation is its inverse', () => close(mm(rot(0, 3, 0.7), transpose(rot(0, 3, 0.7))), ident()));
-test('det of a rotation is 1', () => assert.ok(Math.abs(det(mm(rot(0, 2, 1.1), rot(1, 3, 0.4))) - 1) < 1e-9));
 test('inv undoes a matrix and rejects a singular one', () => {
   const M = mm(rot(0, 1, 0.3), rot(2, 3, 1.2)).map((x, i) => x + (i % 5 === 0 ? 1 : 0));
   close(mm(M, inv(M)), ident());

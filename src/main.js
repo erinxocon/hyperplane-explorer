@@ -856,32 +856,33 @@ function main() {
   // arrow shrinks as the axis leaves the slice (and as it turns toward the camera). Arrows too short to label get
   // their label in a row below instead; level, w lies entirely out of the slice and only shows there, as "w⊥".
   const compass = document.getElementById('compass'), cctx = compass.getContext('2d');
-  const AXES = [['x', 0, '--ink'], ['y', 1, '--ink'], ['z', 2, '--ink'], ['w', 3, '--accent']];
+  const tok = name => css.getPropertyValue(name).trim();
+  const INK = tok('--ink'), C_FONT = '11px ' + tok('--mono'), C_DOT = tok('--muted');
+  const AXES = [['x', 0, INK], ['y', 1, INK], ['z', 2, INK], ['w', 3, tok('--accent')]];
   const _cv = new THREE.Vector3(), _cm = new THREE.Matrix4();
   function drawCompass() {
     const dpr = Math.min(2, window.devicePixelRatio || 1), size = Math.round(compass.clientWidth * dpr);
     if (compass.width !== size) compass.width = compass.height = size;
-    const c = size / 2, L = c * 0.62;
     cctx.setTransform(1, 0, 0, 1, 0, 0); cctx.clearRect(0, 0, size, size);
     cctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    const mid = compass.clientWidth / 2, len = L / dpr;
+    const mid = compass.clientWidth / 2, len = mid * 0.62;
     _cm.extractRotation(camera.matrixWorldInverse);
-    cctx.font = '11px ' + css.getPropertyValue('--mono'); cctx.textAlign = 'center'; cctx.textBaseline = 'middle'; cctx.lineCap = 'round';
-    cctx.fillStyle = css.getPropertyValue('--muted'); cctx.globalAlpha = 0.5; cctx.beginPath(); cctx.arc(mid, mid, 2, 0, 7); cctx.fill();
-    const arrows = AXES.map(([name, i, tok]) => {
+    cctx.font = C_FONT; cctx.textAlign = 'center'; cctx.textBaseline = 'middle'; cctx.lineCap = 'round';
+    cctx.fillStyle = C_DOT; cctx.globalAlpha = 0.5; cctx.beginPath(); cctx.arc(mid, mid, 2, 0, 7); cctx.fill();
+    const arrows = AXES.map(([name, i, col]) => {
       const e = [0, 0, 0, 0]; e[i] = 1;
       const out = Math.abs(dot(e, S.A)); // how far this axis points out of the slice
       _cv.set(dot(e, S.R), dot(e, S.U), -dot(e, S.F)).applyMatrix4(_cm);
-      return { name, tok, out, x: _cv.x, y: -_cv.y, z: _cv.z };
+      return { name, col, out, x: _cv.x, y: -_cv.y, z: _cv.z };
     }).sort((a, b) => a.z - b.z); // draw far arrows first
     const stubs = arrows.filter(a => Math.hypot(a.x, a.y) < 0.35).reverse(); // end-on or out of the slice: label them in a row below
     for (const a of arrows) {
-      const col = css.getPropertyValue(a.tok).trim(), ex = mid + a.x * len, ey = mid + a.y * len;
-      cctx.strokeStyle = cctx.fillStyle = col; cctx.globalAlpha = 0.35 + 0.65 * (1 - a.out);
+      const ex = mid + a.x * len, ey = mid + a.y * len;
+      cctx.strokeStyle = cctx.fillStyle = a.col; cctx.globalAlpha = 0.35 + 0.65 * (1 - a.out);
       cctx.lineWidth = 1.6; cctx.setLineDash(a.out > Math.SQRT1_2 ? [3, 3] : []);
       cctx.beginPath(); cctx.moveTo(mid, mid); cctx.lineTo(ex, ey); cctx.stroke(); cctx.setLineDash([]);
       const d = Math.hypot(a.x, a.y), k = stubs.indexOf(a);
-      if (k >= 0) cctx.fillText(a.name + (a.out > Math.SQRT1_2 ? '⊥' : '·'), mid + (k - (stubs.length - 1) / 2) * 22, mid + 24);
+      if (k >= 0) { cctx.globalAlpha = 0.85; cctx.fillText(a.name + (a.out > Math.SQRT1_2 ? '⊥' : '·'), mid + (k - (stubs.length - 1) / 2) * 22, mid + 24); }
       else cctx.fillText(a.name, ex + (a.x / d) * 9, ey + (a.y / d) * 9);
     }
     cctx.globalAlpha = 1;

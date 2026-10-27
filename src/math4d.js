@@ -13,20 +13,10 @@ export const mm = (A, B) => { const r = new Array(16).fill(0); for (let i = 0; i
 export const mv = (M, v) => [0,1,2,3].map(i => M[i*4]*v[0] + M[i*4+1]*v[1] + M[i*4+2]*v[2] + M[i*4+3]*v[3]);
 
 export const transpose = M => { const r = new Array(16); for (let i = 0; i < 4; i++) for (let j = 0; j < 4; j++) r[j*4+i] = M[i*4+j]; return r; };
-export const det = M => {
-  // cofactor expansion along the first row, using 3x3 minors
-  const m = (r, c) => M[r*4+c];
-  const d3 = (a, b, c, d, e, f, g, h, i) => a*(e*i - f*h) - b*(d*i - f*g) + c*(d*h - e*g);
-  let s = 0;
-  for (let c = 0; c < 4; c++) {
-    const k = [0,1,2,3].filter(x => x !== c);
-    s += (c % 2 ? -1 : 1) * m(0, c) * d3(m(1,k[0]), m(1,k[1]), m(1,k[2]), m(2,k[0]), m(2,k[1]), m(2,k[2]), m(3,k[0]), m(3,k[1]), m(3,k[2]));
-  }
-  return s;
-};
+const I4 = ident();
 export const inv = M => {
   // Gauss-Jordan with partial pivoting; returns null if singular
-  const a = Array.from({ length: 4 }, (_, i) => [...M.slice(i*4, i*4+4), ...ident().slice(i*4, i*4+4)]);
+  const a = Array.from({ length: 4 }, (_, i) => [...M.slice(i*4, i*4+4), ...I4.slice(i*4, i*4+4)]);
   for (let c = 0; c < 4; c++) {
     let p = c; for (let r = c + 1; r < 4; r++) if (Math.abs(a[r][c]) > Math.abs(a[p][c])) p = r;
     if (Math.abs(a[p][c]) < 1e-12) return null;
@@ -39,8 +29,8 @@ export const inv = M => {
 
 // Cayley transform (I - Q)(I + Q)^-1. It is its own inverse and maps a rotation to a skew-symmetric matrix.
 const cayley = Q => {
-  const N = inv(Q.map((x, i) => x + ident()[i]));
-  return N && mm(ident().map((x, i) => x - Q[i]), N);
+  const N = inv(Q.map((x, i) => x + I4[i]));
+  return N && mm(I4.map((x, i) => x - Q[i]), N);
 };
 // Constant-speed interpolation between rotations A and B (orthogonal matrices, vectors as rows).
 // Exact along the geodesic when B is a single-plane turn of A, which covers every rotation that

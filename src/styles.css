@@ -34,7 +34,7 @@ body { background: var(--ground); color: var(--ink); font-family: var(--body); }
 .hud.top { top: 14px; left: max(16px, env(safe-area-inset-left, 0px)); display: flex; gap: 14px; flex-wrap: wrap; font-variant-numeric: tabular-nums; }
 .hud.top b { color: var(--ink); font-weight: 500; }
 .hud.top .w b { color: var(--accent); }
-.view canvas.compass { position: absolute; top: 12px; right: 14px; width: 104px; height: 104px; pointer-events: none; cursor: default; }
+.view canvas.compass { position: absolute; top: 12px; right: 14px; width: 104px; height: 104px; pointer-events: none; }
 .hud.bottom { bottom: 12px; left: max(16px, env(safe-area-inset-left, 0px)); }
 .tags { position: absolute; inset: 0; pointer-events: none; }
 .tag { position: absolute; left: 0; top: 0; font: 11px var(--mono); color: var(--ink); white-space: nowrap;
