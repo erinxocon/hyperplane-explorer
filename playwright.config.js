@@ -8,7 +8,8 @@ export default defineConfig({
     baseURL: 'http://localhost:4173',
     viewport: { width: 1400, height: 860 },
     // Software GL so the suite also runs on headless CI boxes without a GPU.
-    launchOptions: { args: ['--use-gl=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] },
+    // PW_CHROMIUM_PATH points at a specific Chromium build, for machines where Playwright's bundled one isn't available.
+    launchOptions: { args: ['--use-gl=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'], executablePath: process.env.PW_CHROMIUM_PATH || undefined },
   },
   projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'], viewport: { width: 1400, height: 860 } } }],
   webServer: { command: 'npm run build && npm run preview', url: 'http://localhost:4173', reuseExistingServer: true, timeout: 120_000 },
