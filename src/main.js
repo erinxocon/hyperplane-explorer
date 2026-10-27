@@ -3,7 +3,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { ConvexGeometry } from 'three/examples/jsm/geometries/ConvexGeometry.js';
-import { add, sub, mul, dot, norm, lerp, ident, rot, mm, mv } from './math4d.js';
+import { add, sub, mul, dot, norm, lerp, ident, rot, mm, mv, slerp } from './math4d.js';
 import { tesseract, cell16, cell24, cell5, duoprism } from './shapes.js';
 import GLOBE_VS from './shaders/globe.vert.glsl?raw';
 import GLOBE_FS from './shaders/globe.frag.glsl?raw';
@@ -789,6 +789,7 @@ function main() {
     const xu = dot(x, u), xv = dot(x, v), c = Math.cos(a) - 1, s = Math.sin(a);
     return add(x, add(mul(u, c * xu - s * xv), mul(v, c * xv + s * xu)));
   };
+  const frameMat = f => [...f.R, 0, 1, 0, 0, ...f.F, ...f.A];
   const snapFrame = () => { for (const k of ['R', 'U', 'F', 'A']) S[k] = S[k].map(x => Math.abs(x) < 1e-9 ? 0 : Math.abs(Math.abs(x) - 1) < 1e-9 ? Math.sign(x) : x); };
   document.getElementById('rk-diag').addEventListener('click', () => {
     clearTricks(); explain('diag'); framePuzzle(VIEW.mode === 'stack' ? 1.6 : 1, 1.3);
@@ -796,7 +797,7 @@ function main() {
     const s2 = Math.SQRT2, s3 = Math.sqrt(3), s6 = Math.sqrt(6);
     const to = { R: [1 / s2, 0, -1 / s2, 0], F: [1 / s6, 0, 1 / s6, -2 / s6], A: [1 / s3, 0, 1 / s3, 1 / s3] };
     const P = sub([o.center[0], 0, o.center[2], o.center[3]], mul(to.F, 3.2));
-    const opposite = ['R', 'F', 'A'].some(k => dot(S[k], to[k]) < -0.5);
+    const opposite = !slerp(frameMat({ R: S.R, F: S.F, A: S.A }), frameMat(to), 0.5); // exactly 180 degrees away: no unique path
     if (reduceMotion || opposite) { S.R = to.R; S.F = to.F; S.A = to.A; S.U = [0, 1, 0, 0]; S.P = P; jump = null; dirty = true; return; }
     jump = { from: S.P.slice(), to: P, t: 0, dur: 1.3, frame: { from: { R: S.R, F: S.F, A: S.A }, to } };
   });
@@ -849,7 +850,9 @@ function main() {
       S.P = lerp(jump.from, jump.to, e);
       if (jump.frame) {
         const { from, to } = jump.frame;
-        for (const k of ['R', 'F', 'A']) S[k] = lerp(from[k], to[k], e);
+        const M = slerp(frameMat(from), frameMat(to), e);
+        if (M) { S.R = M.slice(0, 4); S.F = M.slice(8, 12); S.A = M.slice(12, 16); } // rows are R, U, F, A
+        else for (const k of ['R', 'F', 'A']) S[k] = lerp(from[k], to[k], e);
         orthonormalize();
         if (jump.t >= 1) { S.R = to.R; S.F = to.F; S.A = to.A; }
       }
