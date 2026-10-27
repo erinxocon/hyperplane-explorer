@@ -32,6 +32,10 @@ function main() {
   const START = { P: [0, 0, 0, 0], R: [1, 0, 0, 0], U: [0, 1, 0, 0], F: [0, 0, 1, 0], A: [0, 0, 0, 1] };
   let S = JSON.parse(JSON.stringify(START));
   let spinT = 0, dirty = true, jump = null;
+  // V is the display frame everything is drawn and measured in. It shares P with S and, until volume view
+  // exists, is S itself. Controls and frame ops act on S; rendering reads V.
+  let V = S;
+  const viewFrame = () => S;
   const VIEW = { mode: 'slice' };
   const SPEED = 2.4, ROT = 1.0; // units/s, rad/s
 
@@ -190,7 +194,7 @@ function main() {
     o.brightCol = col.clone().lerp(new THREE.Color(0xffffff), 0.3);
   });
 
-  const local = X => { const d = sub(X, S.P); return new THREE.Vector3(dot(d, S.R), dot(d, S.U), -dot(d, S.F)); };
+  const local = X => { const d = sub(X, V.P); return new THREE.Vector3(dot(d, V.R), dot(d, V.U), -dot(d, V.F)); };
 
   function clearGroup(g) {
     for (const c of [...g.children]) {
@@ -273,24 +277,24 @@ function main() {
   function projector(C, E) {
     const base = local(C);
     return X => {
-      const r = sub(X, C), a = dot(r, S.A), k = E / Math.max(0.25 * E, E - a);
-      return { p: new THREE.Vector3(base.x + dot(r, S.R) * k, base.y + dot(r, S.U) * k, base.z - dot(r, S.F) * k), a, k };
+      const r = sub(X, C), a = dot(r, V.A), k = E / Math.max(0.25 * E, E - a);
+      return { p: new THREE.Vector3(base.x + dot(r, V.R) * k, base.y + dot(r, V.U) * k, base.z - dot(r, V.F) * k), a, k };
     };
   }
   function buildWire(o, W) {
     clearGroup(o.dyn);
     const proj = projector(o.center, 1.6 * o.rad4);
-    const V = W.map(proj);
+    const PV = W.map(proj);
     o.shape.edges.forEach(([i, j], n) => {
-      const a = V[i].p, b = V[j].p, len = a.distanceTo(b);
+      const a = PV[i].p, b = PV[j].p, len = a.distanceTo(b);
       _d.position.copy(a).add(b).multiplyScalar(0.5);
       if (len > 1e-6) _d.quaternion.setFromUnitVectors(_up, _v.subVectors(b, a).normalize()); else _d.quaternion.identity();
-      const rr = 0.018 * (V[i].k + V[j].k) / 2;
+      const rr = 0.018 * (PV[i].k + PV[j].k) / 2;
       _d.scale.set(rr, Math.max(len, 1e-4), rr); _d.updateMatrix();
       o.tubes.setMatrixAt(n, _d.matrix);
-      o.tubes.setColorAt(n, shadeAt(o, ((V[i].a + V[j].a) / 2 / o.rad4 + 1) / 2));
+      o.tubes.setColorAt(n, shadeAt(o, ((PV[i].a + PV[j].a) / 2 / o.rad4 + 1) / 2));
     });
-    V.forEach((v, n) => {
+    PV.forEach((v, n) => {
       _d.position.copy(v.p); _d.quaternion.identity(); _d.scale.setScalar(0.042 * v.k); _d.updateMatrix();
       o.knobs.setMatrixAt(n, _d.matrix);
       o.knobs.setColorAt(n, shadeAt(o, (v.a / o.rad4 + 1) / 2));
@@ -298,7 +302,7 @@ function main() {
     for (const im of [o.tubes, o.knobs]) { im.instanceMatrix.needsUpdate = true; if (im.instanceColor) im.instanceColor.needsUpdate = true; }
   }
   function sectionPoints(W, edges, off = 0) {
-    const dA = W.map(v => dot(sub(v, S.P), S.A) - off);
+    const dA = W.map(v => dot(sub(v, V.P), V.A) - off);
     const pts = [], EPS = 1e-9;
     const push = X => { const p = local(X); if (!pts.some(q => q.distanceToSquared(p) < 1e-10)) pts.push(p); };
     W.forEach((v, i) => { if (Math.abs(dA[i]) < EPS) push(v); });
@@ -335,8 +339,8 @@ function main() {
   const inLayer = (c, axis, val) => Math.round(mv(c.M, c.h)[axis]) === val;
 
   function buildPuzzle(o) {
-    const d = dot(sub(o.center, S.P), S.A);
-    const m = 1.5 * o.pitch * S.A.reduce((acc, v) => acc + Math.abs(v), 0);
+    const d = dot(sub(o.center, V.P), V.A);
+    const m = 1.5 * o.pitch * V.A.reduce((acc, v) => acc + Math.abs(v), 0);
     o.range = [d - m, d + m];
     const pos = [], nrm = [], col = [], lin = [], hil = [];
     const half = o.size / 2, an = RK.anim, Od = displayO();
@@ -363,7 +367,7 @@ function main() {
           for (let t = 0; t < pa.count; t += 3) {
             // which facet of this piece does the triangle lie on? map its centroid back to the piece's home frame
             const cx = (pa.getX(t) + pa.getX(t + 1) + pa.getX(t + 2)) / 3, cy = (pa.getY(t) + pa.getY(t + 1) + pa.getY(t + 2)) / 3, cz = (pa.getZ(t) + pa.getZ(t + 1) + pa.getZ(t + 2)) / 3;
-            const X = add(add(add(add(S.P, mul(S.R, cx)), mul(S.U, cy)), mul(S.F, -cz)), mul(S.A, pn.off));
+            const X = add(add(add(add(V.P, mul(V.R, cx)), mul(V.U, cy)), mul(V.F, -cz)), mul(V.A, pn.off));
             const u = mul(sub(X, o.center), 1 / o.pitch);
             const l = [0, 1, 2, 3].map(k => dot(colOf(p.M, k), u) - p.c.h[k]);       // M^T u - h
             let ax = 0; for (let k = 1; k < 4; k++) if (Math.abs(l[k]) > Math.abs(l[ax])) ax = k;
@@ -399,27 +403,27 @@ function main() {
   function buildShadow(o, pieces, pos, nrm, col, hil) {
     const C = o.center, base3 = local(C);
     const proj = X => {
-      const r = sub(X, C), k = SHADOW_E / Math.max(0.35, SHADOW_E - dot(r, S.A));
-      return new THREE.Vector3(base3.x + dot(r, S.R) * k, base3.y + dot(r, S.U) * k, base3.z - dot(r, S.F) * k);
+      const r = sub(X, C), k = SHADOW_E / Math.max(0.35, SHADOW_E - dot(r, V.A));
+      return new THREE.Vector3(base3.x + dot(r, V.R) * k, base3.y + dot(r, V.U) * k, base3.z - dot(r, V.F) * k);
     };
     const tmp = new THREE.Vector3(), e1 = new THREE.Vector3(), e2 = new THREE.Vector3();
     for (const p of pieces) for (let i = 0; i < 4; i++) {
       const s = p.c.h[i]; if (!s) continue;
-      if (dot(mul(colOf(p.M, i), s), S.A) > 0.6) continue;   // the cell facing the eye would wrap around everything
+      if (dot(mul(colOf(p.M, i), s), V.A) > 0.6) continue;   // the cell facing the eye would wrap around everything
       const rgb = CELL_RGB[i * 2 + (s > 0)];
       const oth = [0, 1, 2, 3].filter(k => k !== i);
       const ctr = p.c.h.map((v, k) => k === i ? v + s * 0.5 : v * CELL_SHRINK);
-      const V = [];
+      const Q = [];
       for (let b = 0; b < 8; b++) {
         const v = ctr.slice();
         for (let k = 0; k < 3; k++) v[oth[k]] += (b >> k & 1) ? STICKER : -STICKER;
-        V.push(proj(add(C, mul(mv(p.M, v), o.pitch))));
+        Q.push(proj(add(C, mul(mv(p.M, v), o.pitch))));
       }
-      const cen = V.reduce((a, q) => a.add(q), new THREE.Vector3()).multiplyScalar(1 / 8);
+      const cen = Q.reduce((a, q) => a.add(q), new THREE.Vector3()).multiplyScalar(1 / 8);
       for (let k = 0; k < 3; k++) {
         const a1 = (k + 1) % 3, a2 = (k + 2) % 3;
         for (const side of [0, 1]) {
-          const q = [[0, 0], [1, 0], [1, 1], [0, 1]].map(([x, y]) => V[(side << k) | (x << a1) | (y << a2)]);
+          const q = [[0, 0], [1, 0], [1, 1], [0, 1]].map(([x, y]) => Q[(side << k) | (x << a1) | (y << a2)]);
           e1.subVectors(q[1], q[0]); e2.subVectors(q[2], q[0]);
           const nn = new THREE.Vector3().crossVectors(e1, e2).normalize();
           if (nn.dot(tmp.subVectors(q[0], cen)) < 0) { q.reverse(); nn.negate(); }
@@ -427,7 +431,7 @@ function main() {
         }
       }
       if (p.sel) for (let k = 0; k < 3; k++) for (let b = 0; b < 8; b++) if (!(b >> k & 1)) {
-        const q0 = V[b], q1 = V[b | (1 << k)]; hil.push(q0.x, q0.y, q0.z, q1.x, q1.y, q1.z);
+        const q0 = Q[b], q1 = Q[b | (1 << k)]; hil.push(q0.x, q0.y, q0.z, q1.x, q1.y, q1.z);
       }
     }
   }
@@ -477,13 +481,13 @@ function main() {
   function buildEarthShadow(o) {
     const proj = projector(o.center, 1.6 * (o.radius + o.thick));
     const capPt = (n, s) => proj(add(o.center, [n[0] * o.radius, n[1] * o.radius, n[2] * o.radius, s * o.thick]));
-    const aOf = s => s * o.thick * S.A[3];
+    const aOf = s => s * o.thick * V.A[3];
     const near = aOf(1) >= aOf(-1) ? 1 : -1;
     [1, -1].forEach((s, i) => {
       const cap = o.caps[i], dir = cap.geometry.getAttribute('aDir'), pa = cap.geometry.getAttribute('position');
       for (let k = 0; k < pa.count; k++) { const P = capPt([dir.getX(k), dir.getY(k), dir.getZ(k)], s).p; pa.setXYZ(k, P.x, P.y, P.z); }
       pa.needsUpdate = true; cap.geometry.computeBoundingSphere();
-      const isNear = s === near && Math.abs(S.A[3]) > 1e-3;
+      const isNear = s === near && Math.abs(V.A[3]) > 1e-3;
       cap.material.uniforms.uCenter.value.copy(capPt([0, 0, 0], s).p);
       cap.material.uniforms.uAlpha.value = isNear ? 0.22 : 1;
       cap.material.transparent = isNear; cap.material.depthWrite = !isNear;
@@ -496,15 +500,16 @@ function main() {
   }
 
   function rebuild() {
+    V = viewFrame();
     const spinM = spinT ? mm(rot(0, 3, spinT * 0.37), rot(1, 2, spinT * 0.23)) : null;
     for (const o of WORLD) {
       if (o.puzzle) { buildPuzzle(o); continue; }
       const mode = VIEW.mode;
       if (o.globe) {
-        const q = sub(S.P, o.center), d = -dot(q, S.A);
-        const m = o.radius * Math.hypot(S.A[0], S.A[1], S.A[2]) + o.thick * Math.abs(S.A[3]);
+        const q = sub(V.P, o.center), d = -dot(q, V.A);
+        const m = o.radius * Math.hypot(V.A[0], V.A[1], V.A[2]) + o.thick * Math.abs(V.A[3]);
         o.range = [d - m, d + m];
-        o.uni.uCx.value.set(...S.R); o.uni.uCy.value.set(...S.U); o.uni.uCz.value.set(...mul(S.F, -1));
+        o.uni.uCx.value.set(...V.R); o.uni.uCy.value.set(...V.U); o.uni.uCz.value.set(...mul(V.F, -1));
         // a proxy shows the slice through P + off*A, shifted sideways by `shift`
         const setProxy = (px, off, shift) => {
           const dd = d - off, br2 = o.radius * o.radius + o.thick * o.thick - dd * dd;
@@ -512,7 +517,7 @@ function main() {
           if (!px.visible) return false;
           px.position.copy(local(o.center)); px.position.x += shift;
           px.scale.setScalar(Math.sqrt(br2) * 1.02);
-          px.material.uniforms.uQ.value.set(...add(q, mul(S.A, off)));
+          px.material.uniforms.uQ.value.set(...add(q, mul(V.A, off)));
           px.material.uniforms.uShift.value.set(shift, 0, 0);
           return true;
         };
@@ -520,12 +525,12 @@ function main() {
         o.caps.forEach(c => { c.visible = false; }); o.links.visible = false;
         if (mode === 'slice') {
           const vis = setProxy(o.proxies[1], 0, 0);
-          o.state = !vis ? 'not in slice' : Math.abs(S.A[3]) > 0.9995 ? 'whole globe' : 'sliced open';
+          o.state = !vis ? 'not in slice' : Math.abs(V.A[3]) > 0.9995 ? 'whole globe' : 'sliced open';
         } else if (mode === 'stack') {
           const spacing = 2 * o.radius + 0.7;
           [-1, 0, 1].forEach((k, i) => setProxy(o.proxies[i], d + k * m / 2, k * spacing));
           o.stackInfo = { spacing, bottom: -o.radius - 0.35, labels: STACK_LABELS };
-          o.state = Math.abs(S.A[3]) > 0.9995 ? 'stacked, whole' : 'stacked, sliced';
+          o.state = Math.abs(V.A[3]) > 0.9995 ? 'stacked, whole' : 'stacked, sliced';
         } else {
           buildEarthShadow(o);
           o.state = 'shadow';
@@ -533,7 +538,7 @@ function main() {
         continue;
       }
       if (o.radius) {
-        const d = dot(sub(o.center, S.P), S.A), rr = o.radius;
+        const d = dot(sub(o.center, V.P), V.A), rr = o.radius;
         o.range = [d - rr, d + rr];
         const setBall = (b, off, shift) => {
           const dd = d - off; b.visible = Math.abs(dd) < rr;
@@ -550,17 +555,17 @@ function main() {
       }
       const M = spinM ? mm(spinM, o.orient) : o.orient;
       const W = o.shape.verts.map(v => add(o.center, mul(mv(M, v), o.scale)));
-      const dA = W.map(v => dot(sub(v, S.P), S.A));
+      const dA = W.map(v => dot(sub(v, V.P), V.A));
       o.range = [Math.min(...dA), Math.max(...dA)];
       o.tubes.visible = o.knobs.visible = mode === 'shadow';
       if (mode === 'slice') buildSection(o, sectionPoints(W, o.shape.edges).pts);
       else if (mode === 'stack') buildStack(o, W);
       else buildWire(o, W);
     }
-    floor.position.y = FLOOR_Y - S.P[1];
-    floorMat.uniforms.uP.value.set(...S.P);
-    floorMat.uniforms.uR.value.set(...S.R);
-    floorMat.uniforms.uF.value.set(...S.F);
+    floor.position.y = FLOOR_Y - V.P[1];
+    floorMat.uniforms.uP.value.set(...V.P);
+    floorMat.uniforms.uR.value.set(...V.R);
+    floorMat.uniforms.uF.value.set(...V.F);
     updatePanel();
   }
 
@@ -602,7 +607,7 @@ function main() {
     b.innerHTML = `<span class="nm"><span class="dot" style="background:${o.color}"></span>${o.name}</span><span class="track"><span class="bar" style="background:${o.color}"></span></span>`;
     b.addEventListener('click', () => {
       const c = (o.range[0] + o.range[1]) / 2;
-      const from = S.P.slice(), to = add(S.P, mul(S.A, c));
+      const from = S.P.slice(), to = add(S.P, mul(V.A, c));
       if (matchMedia('(prefers-reduced-motion: reduce)').matches) { S.P = to; dirty = true; }
       else jump = { from, to, t: 0 };
     });
@@ -625,7 +630,7 @@ function main() {
 
   function updatePanel() {
     S.P.forEach((v, i) => hud[i].textContent = fmt(v));
-    ROWS.forEach(([k], r) => S[k].forEach((v, c) => {
+    ROWS.forEach(([k], r) => V[k].forEach((v, c) => {
       const td = cells[r][c];
       td.textContent = fmt(v);
       const pct = Math.round(Math.abs(v) * (k === 'A' ? 34 : 24));
@@ -781,7 +786,7 @@ function main() {
   });
   document.getElementById('rk-mirror').addEventListener('click', () => {
     if (RK.mirror || RK.spin.on || RK.spin.stopping) return;
-    RK.mirror = { u: S.R.slice(), v: S.A.slice(), base: RK.O.slice(), t: 0 };
+    RK.mirror = { u: V.R.slice(), v: V.A.slice(), base: RK.O.slice(), t: 0 };
     explain('mirror');
   });
   function clearTricks() {
@@ -871,8 +876,8 @@ function main() {
     cctx.fillStyle = C_DOT; cctx.globalAlpha = 0.5; cctx.beginPath(); cctx.arc(mid, mid, 2, 0, 7); cctx.fill();
     const arrows = AXES.map(([name, i, col]) => {
       const e = [0, 0, 0, 0]; e[i] = 1;
-      const out = Math.abs(dot(e, S.A)); // how far this axis points out of the slice
-      _cv.set(dot(e, S.R), dot(e, S.U), -dot(e, S.F)).applyMatrix4(_cm);
+      const out = Math.abs(dot(e, V.A)); // how far this axis points out of the slice
+      _cv.set(dot(e, V.R), dot(e, V.U), -dot(e, V.F)).applyMatrix4(_cm);
       return { name, col, out, x: _cv.x, y: -_cv.y, z: _cv.z };
     }).sort((a, b) => a.z - b.z); // draw far arrows first
     const stubs = arrows.filter(a => Math.hypot(a.x, a.y) < 0.35).reverse(); // end-on or out of the slice: label them in a row below
