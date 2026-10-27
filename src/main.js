@@ -877,10 +877,10 @@ function main() {
     for (const a of arrows) {
       const col = css.getPropertyValue(a.tok).trim(), ex = mid + a.x * len, ey = mid + a.y * len;
       cctx.strokeStyle = cctx.fillStyle = col; cctx.globalAlpha = 0.35 + 0.65 * (1 - a.out);
-      cctx.lineWidth = 1.6; cctx.setLineDash(a.out > 0.5 ? [3, 3] : []);
+      cctx.lineWidth = 1.6; cctx.setLineDash(a.out > Math.SQRT1_2 ? [3, 3] : []);
       cctx.beginPath(); cctx.moveTo(mid, mid); cctx.lineTo(ex, ey); cctx.stroke(); cctx.setLineDash([]);
       const d = Math.hypot(a.x, a.y), k = stubs.indexOf(a);
-      if (k >= 0) cctx.fillText(a.name + (a.out > 0.5 ? '⊥' : '·'), mid + (k - (stubs.length - 1) / 2) * 22, mid + 24);
+      if (k >= 0) cctx.fillText(a.name + (a.out > Math.SQRT1_2 ? '⊥' : '·'), mid + (k - (stubs.length - 1) / 2) * 22, mid + 24);
       else cctx.fillText(a.name, ex + (a.x / d) * 9, ey + (a.y / d) * 9);
     }
     cctx.globalAlpha = 1;
