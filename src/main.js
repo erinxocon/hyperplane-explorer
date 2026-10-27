@@ -852,8 +852,9 @@ function main() {
   const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
   const stackTags = document.getElementById('stack-tags');
   let last = performance.now();
-  // Compass: the four world axes as seen from your orbit camera. An arrow's length is how much of that axis
-  // lies in your slice; w is mostly out of it until you tilt, so it shows as a short, dashed stub at first.
+  // Compass: the four world axes as seen from your orbit camera. Each axis is projected into your slice, so an
+  // arrow shrinks as the axis leaves the slice (and as it turns toward the camera). Arrows too short to label get
+  // their label in a row below instead; level, w lies entirely out of the slice and only shows there, as "w⊥".
   const compass = document.getElementById('compass'), cctx = compass.getContext('2d');
   const AXES = [['x', 0, '--ink'], ['y', 1, '--ink'], ['z', 2, '--ink'], ['w', 3, '--accent']];
   const _cv = new THREE.Vector3(), _cm = new THREE.Matrix4();
