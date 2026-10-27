@@ -26,8 +26,11 @@ Pushes to `main` build the site and publish it to GitHub Pages (`.github/workflo
 
 ```sh
 npx playwright install chromium   # once
-npm test
+npm test                          # unit tests, then the Playwright smoke test
+npm run test:unit                 # unit tests only (Node 21+)
 ```
+
+If Playwright's bundled Chromium isn't available on your system, point `PW_CHROMIUM_PATH` at another Chromium binary.
 
 ## Controls
 

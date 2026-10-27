@@ -9,17 +9,19 @@ Vanilla JS + three.js **r147**, bundled with Vite. There's no framework and no T
 - `npm run dev` starts the dev server with HMR.
 - `npm run build` writes a static build to `dist/`. `base: './'`, so it works from any path.
 - `npm run preview` serves `dist/` on :4173.
-- `npm test` runs the Playwright smoke test. It builds, serves, flips every view, does a twist, and fails on any console or page error. Screenshots go to `test-results/`. Run `npx playwright install chromium` once first.
+- `npm test` runs the unit tests, then the Playwright smoke test. The smoke test builds, serves, flips every view, does a twist, and fails on any console or page error. Screenshots go to `test-results/`. Run `npx playwright install chromium` once first. Where Playwright's bundled Chromium isn't available, set `PW_CHROMIUM_PATH` to another Chromium binary.
+- `npm run test:unit` runs only the unit tests in `tests/unit/` with Node's built-in runner (Node 21+ for the glob). They cover `math4d.js` and `shapes.js`.
 - `npm run landmask` regenerates `src/assets/land-mask.png` from Natural Earth 1:110m (world-atlas). Output is deterministic.
+- Pushes to `main` run `.github/workflows/pages.yml`: unit tests, build, deploy to GitHub Pages. The smoke test doesn't run in CI.
 
 ## Layout
 
 - `index.html` holds the markup: the viewport (`#view`) and the side panel (`<aside class="panel">`).
 - `src/styles.css`: every color is a token on `:root`. The look is a single dark theme on purpose.
-- `src/math4d.js` has the 4-vector and 4×4 helpers. Vectors are `[x,y,z,w]` arrays. Matrices are flat row-major arrays of 16. `rot(i,j,t)` is a Givens rotation in the i–j plane.
+- `src/math4d.js` has the 4-vector and 4×4 helpers. Vectors are `[x,y,z,w]` arrays. Matrices are flat row-major arrays of 16. `rot(i,j,t)` is a Givens rotation in the i–j plane. `slerp(A,B,t)` interpolates rotations at constant speed via the Cayley transform (exact for single-plane turns, null at 180°); `jump.frame` uses it.
 - `src/shapes.js` has the polytope generators: `{ verts, edges }`, centered, unit-ish.
 - `src/shaders/` holds the Earth ray-caster (`globe.*`) and the Earth cap surface for Shadow (`earth-cap.*`), imported with `?raw`.
-- `src/main.js` is everything else, still one `main()` closure (see Refactor plan). Its sections, in order: viewer state → scene/floor → shaders/assets → per-object render objects → sectioning (`sectionPoints`, `sectionGeometry`) → stack/shadow builders → Rubik's cube model and builders → `rebuild()` → panel/ruler → input → Rubik's panel → frame loop.
+- `src/main.js` is everything else, still one `main()` closure (see Refactor plan). Its sections, in order: viewer state → scene/floor → shaders/assets → per-object render objects → sectioning (`sectionPoints`, `sectionGeometry`) → stack/shadow builders → Rubik's cube model and builders → `rebuild()` → panel/ruler → input → Rubik's panel → compass (`drawCompass`, a 2D canvas overlay of the world axes) → frame loop.
 
 ## Core model (read before editing)
 
