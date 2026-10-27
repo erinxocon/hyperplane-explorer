@@ -258,11 +258,17 @@ function main() {
   // shaded from dim (kata, far from the eye) to bright (ana, near it).
   const _d = new THREE.Object3D(), _up = new THREE.Vector3(0, 1, 0), _v = new THREE.Vector3(), _c = new THREE.Color();
   const KATA_TINT = new THREE.Color(css.getPropertyValue('--kata').trim()), ANA_TINT = new THREE.Color(css.getPropertyValue('--ana').trim()), TINT = 0.3;
-  // brightness runs dim -> bright with t; the far (kata) end also leans cool and the near (ana) end warm
+  // brightness runs dim -> bright with t; the far (kata) end also leans cool and the near (ana) end warm.
+  // The tint shifts hue only: the result is rescaled to the untinted luma so the brightness depth cue is kept.
+  const luma = c => 0.299 * c.r + 0.587 * c.g + 0.114 * c.b;
   const shadeAt = (o, t) => {
     t = Math.min(1, Math.max(0, t));
     _c.copy(o.dimCol).lerp(o.brightCol, t);
-    return _c.lerp(t < 0.5 ? KATA_TINT : ANA_TINT, TINT * Math.abs(2 * t - 1));
+    const l0 = luma(_c);
+    _c.lerp(t < 0.5 ? KATA_TINT : ANA_TINT, TINT * Math.abs(2 * t - 1));
+    const l1 = luma(_c);
+    if (l1 > 0) _c.multiplyScalar(l0 / l1);
+    return _c.setRGB(Math.min(1, _c.r), Math.min(1, _c.g), Math.min(1, _c.b));
   };
   function projector(C, E) {
     const base = local(C);
