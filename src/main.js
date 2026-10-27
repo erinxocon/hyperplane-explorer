@@ -32,10 +32,16 @@ function main() {
   const START = { P: [0, 0, 0, 0], R: [1, 0, 0, 0], U: [0, 1, 0, 0], F: [0, 0, 1, 0], A: [0, 0, 0, 1] };
   let S = JSON.parse(JSON.stringify(START));
   let spinT = 0, dirty = true, jump = null;
-  // V is the display frame everything is drawn and measured in. It shares P with S and, until volume view
-  // exists, is S itself. Controls and frame ops act on S; rendering reads V.
+  // V is the display frame everything is drawn and measured in. It shares P, R and F with S; controls and
+  // frame ops act on S, rendering reads V. Volume view turns V 90° in the U–A plane (U -> A, A -> -U), so the
+  // slice lies level, w shows as up and the walker frame, with U locked to world y, is never touched.
   let V = S;
-  const viewFrame = () => S;
+  const VOL = { on: false, t: 0 };
+  const viewFrame = () => {
+    if (!VOL.t) return S;
+    const th = ease(VOL.t) * Math.PI / 2, c = Math.cos(th), s = Math.sin(th);
+    return { P: S.P, R: S.R, F: S.F, U: add(mul(S.U, c), mul(S.A, s)), A: sub(mul(S.A, c), mul(S.U, s)) };
+  };
   const VIEW = { mode: 'slice' };
   const SPEED = 2.4, ROT = 1.0; // units/s, rad/s
 
@@ -94,14 +100,14 @@ function main() {
   // so the tiles shift as you move ana/kata or rotate the slice.
   const floorMat = new THREE.ShaderMaterial({
     uniforms: {
-      uP: { value: new THREE.Vector4() }, uR: { value: new THREE.Vector4() }, uF: { value: new THREE.Vector4() },
+      uP: { value: new THREE.Vector4() }, uR: { value: new THREE.Vector4() }, uU: { value: new THREE.Vector4() }, uF: { value: new THREE.Vector4() },
       cA: { value: new THREE.Color('#1a2331') }, cB: { value: new THREE.Color('#222d3e') }, cW: { value: new THREE.Color('#3a3358') }, cBg: { value: BG },
     },
     vertexShader: `varying vec3 vPos; void main(){ vec4 wp = modelMatrix * vec4(position,1.0); vPos = wp.xyz; gl_Position = projectionMatrix * viewMatrix * wp; }`,
     fragmentShader: `
-      uniform vec4 uP, uR, uF; uniform vec3 cA, cB, cW, cBg; varying vec3 vPos;
+      uniform vec4 uP, uR, uU, uF; uniform vec3 cA, cB, cW, cBg; varying vec3 vPos;
       void main(){
-        vec4 X = uP + vPos.x * uR + (-vPos.z) * uF;
+        vec4 X = uP + vPos.x * uR + vPos.y * uU + (-vPos.z) * uF;
         vec3 q = floor(vec3(X.x, X.z, X.w));
         float k = mod(q.x + q.y + q.z, 2.0);
         vec3 col = mix(cA, cB, k);
@@ -241,7 +247,7 @@ function main() {
     target.add(new THREE.Points(new THREE.BufferGeometry().setFromPoints(g.ends), o.ptMat));
   }
   function buildSection(o, pts) { clearGroup(o.dyn); addSection(o.dyn, o, sectionGeometry(pts)); }
-  const STACK_LABELS = ['kata side', 'middle', 'ana side'];
+  const stackLabels = () => VOL.on ? ['above', 'middle', 'below'] : ['kata side', 'middle', 'ana side'];
   // Stack: three parallel cuts through the shape, a quarter of its extent apart along ana, laid side by side.
   function buildStack(o, W) {
     clearGroup(o.dyn);
@@ -256,7 +262,7 @@ function main() {
     }
     const spacing = width + 0.7, base = local(o.center);
     parts.forEach((g, i) => { if (!g) return; const panel = new THREE.Group(); panel.position.x = (i - 1) * spacing; addSection(panel, o, g); o.dyn.add(panel); });
-    o.stackInfo = { spacing, bottom: -(width / 2 + 0.35), labels: STACK_LABELS };
+    o.stackInfo = { spacing, bottom: -(width / 2 + 0.35), labels: stackLabels() };
   }
   // Shadow: perspective projection along ana from an eye 1.6 radii ana of the center. Edges become tubes,
   // shaded from dim (kata, far from the eye) to bright (ana, near it).
@@ -349,7 +355,7 @@ function main() {
       const moving = an && inLayer(c, an.move.axis, an.move.val);
       return { c, M: mm(Od, moving ? mm(tw, c.M) : c.M), sel: inLayer(c, RK.axis, RK.val) };
     });
-    if (VIEW.mode === 'stack') o.stackInfo = { spacing: 3 * o.pitch + 0.8, bottom: -1.25, labels: ['one layer kata', 'through center', 'one layer ana'] };
+    if (VIEW.mode === 'stack') o.stackInfo = { spacing: 3 * o.pitch + 0.8, bottom: -1.25, labels: VOL.on ? ['one layer up', 'through center', 'one layer down'] : ['one layer kata', 'through center', 'one layer ana'] };
     if (VIEW.mode === 'shadow') buildShadow(o, pieces, pos, nrm, col, hil);
     else {
       // slice: your own cut. stack: three cuts one layer apart along ana, centered on the puzzle, side by side.
@@ -529,7 +535,7 @@ function main() {
         } else if (mode === 'stack') {
           const spacing = 2 * o.radius + 0.7;
           [-1, 0, 1].forEach((k, i) => setProxy(o.proxies[i], d + k * m / 2, k * spacing));
-          o.stackInfo = { spacing, bottom: -o.radius - 0.35, labels: STACK_LABELS };
+          o.stackInfo = { spacing, bottom: -o.radius - 0.35, labels: stackLabels() };
           o.state = Math.abs(V.A[3]) > 0.9995 ? 'stacked, whole' : 'stacked, sliced';
         } else {
           buildEarthShadow(o);
@@ -549,7 +555,7 @@ function main() {
         else if (mode === 'stack') {
           const spacing = 2 * rr + 0.6;
           [-1, 0, 1].forEach((k, i) => setBall(o.balls[i], d + k * rr / 2, k * spacing));
-          o.stackInfo = { spacing, bottom: -rr - 0.35, labels: STACK_LABELS };
+          o.stackInfo = { spacing, bottom: -rr - 0.35, labels: stackLabels() };
         } else buildGlomeShadow(o, spinM);
         continue;
       }
@@ -562,9 +568,13 @@ function main() {
       else if (mode === 'stack') buildStack(o, W);
       else buildWire(o, W);
     }
-    floor.position.y = FLOOR_Y - V.P[1];
+    // the floor stays the plane where world y = FLOOR_Y; as volume view levels the slice it drops away and hides
+    const cu = V.U[1];
+    floor.visible = cu > 0.05;
+    floor.position.y = (FLOOR_Y - V.P[1]) / Math.max(cu, 0.05);
     floorMat.uniforms.uP.value.set(...V.P);
     floorMat.uniforms.uR.value.set(...V.R);
+    floorMat.uniforms.uU.value.set(...V.U);
     floorMat.uniforms.uF.value.set(...V.F);
     updatePanel();
   }
@@ -647,7 +657,8 @@ function main() {
       if (vis) { o.barEl.style.left = ((L + RANGE) / (2 * RANGE) * 100) + '%'; o.barEl.style.width = Math.max(0.8, (H - L) / (2 * RANGE) * 100) + '%'; }
       const inSlice = lo < 0 && hi > 0;
       o.row.classList.toggle('in', inSlice);
-      o.row.title = (inSlice ? 'Intersects your slice' : (lo >= 0 ? 'Lies ana of you' : 'Lies kata of you')) + ' · tap to center your slice on it';
+      const side = lo >= 0 ? (VOL.on ? 'below' : 'ana of') : (VOL.on ? 'above' : 'kata of');
+      o.row.title = (inSlice ? 'Intersects your slice' : `Lies ${side} you`) + ' · tap to center your slice on it';
     }
   }
 
@@ -675,6 +686,7 @@ function main() {
     if (e.metaKey || e.ctrlKey || e.altKey) return;
     const vm = { Digit1: 'slice', Digit2: 'stack', Digit3: 'shadow' }[e.code];
     if (vm) { setMode(vm); return; }
+    if (e.code === 'KeyV') { if (!e.repeat) setVolume(!VOL.on); return; }
     const c = KEYS[e.code]; if (!c) return;
     e.preventDefault();
     if (keysDown.has(e.code)) return;
@@ -766,15 +778,30 @@ function main() {
     stack: '<b>Stack</b> cuts every shape with three parallel slices spaced along ana and lays them side by side, kata on the left, ana on the right, like CT scans of a 4D object. Shapes appear whether or not your own slice crosses them, so ones that differ only in w overlap; use the eye toggles to separate them.',
     shadow: '<b>Shadow</b> is a 4D perspective projection along ana: what a 4D eye ana of each shape would see on its 3D retina. Parts further kata shrink toward the middle. Polytopes become the classic nested wireframes and the glome shows a Clifford torus between two linked circles; on both, edges further kata are dimmer and bluer and edges nearer the eye brighter and warmer. Earth shows its two w-caps joined like a drawn cylinder, with the cap nearer the eye see-through. Shapes that differ only in w, like the tesseract, glome and 16-cell, land on the same spot; use the eye toggles to pull them apart.',
   };
+  const VOL_DESC = ' <b>Volume view is on:</b> your slice lies level, so here ana means down and kata means up.';
   const viewDesc = document.getElementById('view-desc');
   function setMode(m) {
     if (m !== VIEW.mode && (m === 'stack' || VIEW.mode === 'stack')) dolly(m === 'stack' ? 1.5 : 1 / 1.5);
     VIEW.mode = m;
     document.querySelectorAll('#view-mode button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.v === m)));
-    viewDesc.innerHTML = VIEW_DESC[m];
+    viewDesc.innerHTML = VIEW_DESC[m] + (VOL.on ? VOL_DESC : '');
     explain(m); dirty = true;
   }
   document.getElementById('view-mode').addEventListener('click', e => { const b = e.target.closest('button'); if (b) setMode(b.dataset.v); });
+  const volBox = document.getElementById('volume');
+  const axLo = document.getElementById('ax-lo'), axHi = document.getElementById('ax-hi'), rulerNote = document.getElementById('ruler-note');
+  const RULER_NOTE = rulerNote.innerHTML;
+  function setVolume(on) {
+    VOL.on = on;
+    if (reduceMotion) VOL.t = on ? 1 : 0;
+    volBox.checked = on;
+    axLo.textContent = on ? '6 above' : 'kata −6';
+    axHi.textContent = on ? '6 below' : '+6 ana';
+    rulerNote.innerHTML = on ? 'Volume view slices level, so each bar is a shape’s extent in height, above to the left. Bars crossing the line intersect your slice. Tap a name to move your slice to that shape’s height; use the eye to show or hide it.' : RULER_NOTE;
+    setMode(VIEW.mode);
+    updatePuzzlePanel();
+  }
+  volBox.addEventListener('change', () => setVolume(volBox.checked));
   const spinBtn = document.getElementById('rk-spin');
   function updateSpinBtn() { spinBtn.setAttribute('aria-pressed', String(RK.spin.on)); }
   spinBtn.addEventListener('click', () => {
@@ -810,7 +837,7 @@ function main() {
   const frameMat = f => [...f.R, 0, 1, 0, 0, ...f.F, ...f.A];
   const snapFrame = () => { for (const k of ['R', 'U', 'F', 'A']) S[k] = S[k].map(x => Math.abs(x) < 1e-9 ? 0 : Math.abs(Math.abs(x) - 1) < 1e-9 ? Math.sign(x) : x); };
   document.getElementById('rk-diag').addEventListener('click', () => {
-    clearTricks(); explain('diag'); framePuzzle(VIEW.mode === 'stack' ? 1.6 : 1, 1.3);
+    clearTricks(); if (VOL.on) setVolume(false); explain('diag'); framePuzzle(VIEW.mode === 'stack' ? 1.6 : 1, 1.3);
     const o = WORLD.find(w => w.puzzle);
     const s2 = Math.SQRT2, s3 = Math.sqrt(3), s6 = Math.sqrt(6);
     const to = { R: [1 / s2, 0, -1 / s2, 0], F: [1 / s6, 0, 1 / s6, -2 / s6], A: [1 / s3, 0, 1 / s3, 1 / s3] };
@@ -820,7 +847,7 @@ function main() {
     jump = { from: S.P.slice(), to: P, t: 0, dur: 1.3, frame: { from: { R: S.R, F: S.F, A: S.A }, to } };
   });
   document.getElementById('rk-goto').addEventListener('click', () => {
-    clearTricks(); explain('face'); framePuzzle(VIEW.mode === 'stack' ? 1.6 : 1, 1.1);
+    clearTricks(); if (VOL.on) setVolume(false); explain('face'); framePuzzle(VIEW.mode === 'stack' ? 1.6 : 1, 1.1);
     const o = WORLD.find(w => w.puzzle);
     const T = o.center.slice(); T[RK.axis] += RK.val * o.pitch;
     let turn = null, Af = S.A;
@@ -917,6 +944,10 @@ function main() {
       }
       dirty = true;
       if (jump.t >= 1) jump = null;
+    }
+    if (VOL.t !== +VOL.on) {
+      VOL.t = VOL.on ? Math.min(1, VOL.t + dt) : Math.max(0, VOL.t - dt); // one second each way
+      dirty = true;
     }
     if (!RK.anim && RK.queue.length) {
       const move = RK.queue.shift();

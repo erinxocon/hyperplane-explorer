@@ -69,13 +69,15 @@
         <button class="key w" data-act="rot:RA:-1" id="r-rk">Kata<kbd>U</kbd></button>
         <button class="key w" data-act="rot:RA:1" id="r-ra">Ana<kbd>O</kbd></button>
       </div>
+      <label class="switch vol" for="volume"><input type="checkbox" id="volume"><span></span>Volume view <kbd>V</kbd></label>
+      <p class="note">Lays your slice level: the view turns 90° in the up–ana plane, so you see x, z and w with w as up, and R/F step through heights. Your own frame and the other controls don’t change.</p>
     </section>
 
     <section>
       <h2>Shapes <span class="vis-all"><button type="button" id="show-all">Show all</button><button type="button" id="hide-all">Hide all</button></span></h2>
       <div class="ruler" id="ruler"></div>
-      <div class="axis"><span></span><div><span>kata −6</span><span class="mid">your slice</span><span>+6 ana</span></div></div>
-      <p class="note">Each bar is a shape's extent along your ana direction (kata to the left). Bars crossing the line intersect your slice and are drawn in the view. Tap a name to center your slice on that shape; use the eye to show or hide it.</p>
+      <div class="axis"><span></span><div><span id="ax-lo">kata −6</span><span class="mid">your slice</span><span id="ax-hi">+6 ana</span></div></div>
+      <p class="note" id="ruler-note">Each bar is a shape's extent along your ana direction (kata to the left). Bars crossing the line intersect your slice and are drawn in the view. Tap a name to center your slice on that shape; use the eye to show or hide it.</p>
     </section>
 
     <section>
