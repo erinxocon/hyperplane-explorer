@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Hyperplane Explorer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+</head>
+<body>
+<div class="app">
+  <div class="view" id="view">
+    <div class="hud top" id="hud">
+      <span>x <b id="px">0.00</b></span><span>y <b id="py">0.00</b></span><span>z <b id="pz">0.00</b></span><span class="w">w <b id="pw">0.00</b></span>
+    </div>
+    <div class="hud bottom">Drag to orbit · scroll or pinch to zoom</div>
+    <div class="tags" id="stack-tags" hidden><span class="tag"></span><span class="tag"></span><span class="tag"></span></div>
+  </div>
+
+  <aside class="panel">
+    <header>
+      <h1>Hyperplane Explorer</h1>
+      <p class="lede">You stand in a 3D slice of a 4D world. Everything you see is where a 4D solid crosses your slice. Step <em>ana</em> or <em>kata</em> to slide the slice along the fourth axis, or rotate it to cut the same solids at a new angle.</p>
+    </header>
+
+    <section>
+      <h2>View <span>keys 1 · 2 · 3</span></h2>
+      <div class="seg view-seg" id="view-mode" role="group" aria-label="View">
+        <button type="button" id="vm-slice" data-v="slice">Slice</button><button type="button" id="vm-stack" data-v="stack">Stack</button><button type="button" id="vm-shadow" data-v="shadow">Shadow</button>
+      </div>
+      <p class="note" id="view-desc"></p>
+    </section>
+
+    <section>
+      <h2>Move <span>hold to keep going</span></h2>
+      <div class="move">
+        <div class="cluster planar">
+          <button class="key fwd" data-act="move:F:1" id="k-fwd">Forward<kbd>W</kbd></button>
+          <button class="key lft" data-act="move:R:-1" id="k-left">Left<kbd>A</kbd></button>
+          <button class="key bck" data-act="move:F:-1" id="k-back">Back<kbd>S</kbd></button>
+          <button class="key rgt" data-act="move:R:1" id="k-right">Right<kbd>D</kbd></button>
+          <small>within slice</small>
+        </div>
+        <div class="cluster">
+          <button class="key" data-act="move:U:1" id="k-up">Up<kbd>R</kbd></button>
+          <button class="key" data-act="move:U:-1" id="k-down">Down<kbd>F</kbd></button>
+          <small>height</small>
+        </div>
+        <div class="cluster">
+          <button class="key w" data-act="move:A:1" id="k-ana">Ana<kbd>E</kbd></button>
+          <button class="key w" data-act="move:A:-1" id="k-kata">Kata<kbd>Q</kbd></button>
+          <small>4th axis</small>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>Rotate the slice</h2>
+      <div class="rot">
+        <div class="lbl">Turn<code>R–F plane</code></div>
+        <button class="key" data-act="rot:RF:-1" id="r-tl">Left<kbd>J</kbd></button>
+        <button class="key" data-act="rot:RF:1" id="r-tr">Right<kbd>L</kbd></button>
+        <div class="lbl">Pitch forward<code>F–A plane</code></div>
+        <button class="key w" data-act="rot:FA:-1" id="r-fk">Kata<kbd>K</kbd></button>
+        <button class="key w" data-act="rot:FA:1" id="r-fa">Ana<kbd>I</kbd></button>
+        <div class="lbl">Swing sideways<code>R–A plane</code></div>
+        <button class="key w" data-act="rot:RA:-1" id="r-rk">Kata<kbd>U</kbd></button>
+        <button class="key w" data-act="rot:RA:1" id="r-ra">Ana<kbd>O</kbd></button>
+      </div>
+    </section>
+
+    <section>
+      <h2>Shapes <span class="vis-all"><button type="button" id="show-all">Show all</button><button type="button" id="hide-all">Hide all</button></span></h2>
+      <div class="ruler" id="ruler"></div>
+      <div class="axis"><span></span><div><span>kata −6</span><span class="mid">your slice</span><span>+6 ana</span></div></div>
+      <p class="note">Each bar is a shape's extent along your ana direction (kata to the left). Bars crossing the line intersect your slice and are drawn in the view. Tap a name to center your slice on that shape; use the eye to show or hide it.</p>
+    </section>
+
+    <section>
+      <h2>4D Rubik’s cube <span class="state" id="rk-state">solved</span></h2>
+      <div class="rk">
+        <div class="rk-row"><span class="rk-lbl">Layer axis</span>
+          <div class="seg" id="rk-axis" role="group" aria-label="Layer axis">
+            <button type="button" id="rk-ax0" data-v="0">X</button><button type="button" id="rk-ax1" data-v="1">Y</button><button type="button" id="rk-ax2" data-v="2">Z</button><button type="button" id="rk-ax3" data-v="3">W</button>
+          </div></div>
+        <div class="rk-row"><span class="rk-lbl">Layer</span>
+          <div class="seg" id="rk-val" role="group" aria-label="Layer position">
+            <button type="button" id="rk-vm" data-v="-1">−1</button><button type="button" id="rk-v0" data-v="0">0</button><button type="button" id="rk-vp" data-v="1">+1</button>
+          </div></div>
+        <div class="rot" id="rk-planes"></div>
+        <div class="rk-group"><span class="rk-lbl">Aim</span><div class="rk-actions">
+          <button class="ghost" type="button" id="rk-goto">Face this layer</button>
+          <button class="ghost" type="button" id="rk-diag">Diagonal view</button>
+        </div></div>
+        <div class="rk-group"><span class="rk-lbl">4D tricks</span><div class="rk-actions">
+          <button class="ghost" type="button" id="rk-mirror">Mirror via 4D</button>
+          <button class="ghost" type="button" id="rk-spin" aria-pressed="false">Double rotation</button>
+        </div></div>
+        <div class="rk-group"><span class="rk-lbl">Puzzle</span><div class="rk-actions">
+          <button class="ghost" type="button" id="rk-scramble">Scramble</button>
+          <button class="ghost" type="button" id="rk-reset">Reset</button>
+          <button class="ghost" type="button" id="rk-solo" aria-pressed="false">Only the cube</button>
+        </div></div>
+        <p class="explain" id="rk-explain" aria-live="polite"></p>
+      </div>
+      <p class="note">A 3×3×3×3 with 80 movable pieces. A twist turns one layer (a whole 3×3×3 block) 90° in a plane that excludes the layer’s own axis. The selected layer is outlined in violet.</p>
+    </section>
+
+    <section>
+      <h2>Earth's layers <span class="state" id="earth-state">in view</span></h2>
+      <ul class="layers">
+        <li><span class="sw" style="background:#6e5b49"></span>Crust<span class="km">0–35 km*</span></li>
+        <li><span class="sw" style="background:#c0502c"></span>Upper mantle<span class="km">35–660 km</span></li>
+        <li><span class="sw" style="background:#e3672f"></span>Lower mantle<span class="km">660–2,890 km</span></li>
+        <li><span class="sw" style="background:#ffb648"></span>Outer core, liquid<span class="km">2,890–5,150 km</span></li>
+        <li><span class="sw" style="background:#fff1b8"></span>Inner core, solid<span class="km">5,150–6,371 km</span></li>
+      </ul>
+      <p class="note">Depths are measured from the surface. The globe is an ordinary 3D ball with a thin extent of 0.6 along w, so with your slice level you see the whole planet. Tilt into ana (I/K or U/O) and the slice cuts it open: the flat faces show the interior. *Crust drawn about 5× thicker than real so it stays visible.</p>
+    </section>
+
+    <section>
+      <h2>Your frame <span>basis in world x y z w</span></h2>
+      <div class="mtx-wrap"><table class="mtx" id="mtx"></table></div>
+    </section>
+
+    <section class="opts">
+      <label class="switch" for="spin"><input type="checkbox" id="spin"><span></span>Spin solids in 4D</label>
+      <button class="ghost" id="reset">Reset position</button>
+    </section>
+  </aside>
+</div>
+<script type="module" src="/src/main.js"></script>
+</body>
+</html>
