@@ -5,7 +5,6 @@ playwright-report/
 .DS_Store
 # Playwright CLI output (may contain credentials)
 .playwright-cli/
-# Local Claude Code and Playwright CLI files; the shared project settings stay tracked
-.claude/*
-!.claude/settings.json
+# Local Claude Code and Playwright CLI files
+.claude/
 .playwright/
