@@ -12,6 +12,8 @@ img { max-width: 100%; }
   --ink: #e4e8ef;
   --muted: #8592a6;
   --accent: #c4a7ff;      /* ana/kata: the 4th axis */
+  --kata: #6f8dff;        /* Shadow view: tint toward kata (far from the eye) */
+  --ana: #ffb067;         /* Shadow view: tint toward ana (near the eye) */
   --key: #1b2430;
   --key-hi: #263244;
   --display: "Bricolage Grotesque", "Avenir Next", "Segoe UI", sans-serif;

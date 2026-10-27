@@ -257,7 +257,13 @@ function main() {
   // Shadow: perspective projection along ana from an eye 1.6 radii ana of the center. Edges become tubes,
   // shaded from dim (kata, far from the eye) to bright (ana, near it).
   const _d = new THREE.Object3D(), _up = new THREE.Vector3(0, 1, 0), _v = new THREE.Vector3(), _c = new THREE.Color();
-  const shadeAt = (o, t) => _c.copy(o.dimCol).lerp(o.brightCol, Math.min(1, Math.max(0, t)));
+  const KATA_TINT = new THREE.Color(css.getPropertyValue('--kata').trim()), ANA_TINT = new THREE.Color(css.getPropertyValue('--ana').trim()), TINT = 0.3;
+  // brightness runs dim -> bright with t; the far (kata) end also leans cool and the near (ana) end warm
+  const shadeAt = (o, t) => {
+    t = Math.min(1, Math.max(0, t));
+    _c.copy(o.dimCol).lerp(o.brightCol, t);
+    return _c.lerp(t < 0.5 ? KATA_TINT : ANA_TINT, TINT * Math.abs(2 * t - 1));
+  };
   function projector(C, E) {
     const base = local(C);
     return X => {
@@ -747,7 +753,7 @@ function main() {
   const VIEW_DESC = {
     slice: '<b>Slice</b> shows what a 3D being living in your hyperplane would see: each shape cut by your slice, and only what the slice crosses.',
     stack: '<b>Stack</b> cuts every shape with three parallel slices spaced along ana and lays them side by side, kata on the left, ana on the right, like CT scans of a 4D object. Shapes appear whether or not your own slice crosses them, so ones that differ only in w overlap; use the eye toggles to separate them.',
-    shadow: '<b>Shadow</b> is a 4D perspective projection along ana: what a 4D eye ana of each shape would see on its 3D retina. Parts further kata shrink toward the middle and are drawn dimmer. Polytopes become the classic nested wireframes, the glome shows a Clifford torus between two linked circles, and Earth shows its two w-caps joined like a drawn cylinder. Shapes that differ only in w, like the tesseract, glome and 16-cell, land on the same spot; use the eye toggles to pull them apart.',
+    shadow: '<b>Shadow</b> is a 4D perspective projection along ana: what a 4D eye ana of each shape would see on its 3D retina. Parts further kata shrink toward the middle and are drawn dimmer and bluer; parts nearer the eye are brighter and warmer. Polytopes become the classic nested wireframes, the glome shows a Clifford torus between two linked circles, and Earth shows its two w-caps joined like a drawn cylinder. Shapes that differ only in w, like the tesseract, glome and 16-cell, land on the same spot; use the eye toggles to pull them apart.',
   };
   const viewDesc = document.getElementById('view-desc');
   function setMode(m) {
