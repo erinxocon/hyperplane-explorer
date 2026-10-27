@@ -26,10 +26,12 @@ Vanilla JS + three.js **r147**, bundled with Vite. There's no framework and no T
 ## Core model (read before editing)
 
 **Viewer frame.** State `S = { P, R, U, F, A }`. P is a point and R/U/F/A is an orthonormal 4-frame: right, up, forward, ana.
-- **U is locked to world y** (`[0,1,0,0]`). All slice rotations happen in the x–z–w subspace, via `rotatePlane` and `orthonormalize`, so the floor stays a floor. Don't break this casually: "Face this layer" refuses Y layers because of it.
+- **U is locked to world y** (`[0,1,0,0]`). All slice rotations happen in the x–z–w subspace, via `rotatePlane` and `orthonormalize`, so the floor stays a floor. Don't break this casually: "Face this layer" can't face Y layers because of it, except in volume view.
 - Your hyperplane is `{X : (X−P)·A = 0}`.
 
-**4D → scene coordinates.** `local(X) = ((X−P)·R, (X−P)·U, −(X−P)·F)`. The −F is because the three.js camera looks down −z. All scene geometry lives in these local coordinates; the scene origin is you.
+**Display frame.** Rendering reads `V`, not `S`. `V` shares P, R and F with S. Normally `V` is `S`; **volume view** (`VOL`, key V) tweens it 90° in the U–A plane to `(R, A, F, −U)`, so the slice lies level, your ana shows as up and R/F step through heights. Controls and frame ops (`act`, `rotatePlane`, `jump`, Face this layer, Diagonal view) act on `S`, so U stays locked. Code that draws or measures must read `V`; code that moves you must write `S`. In volume view the floor is parallel to the slice, so it drops away and hides, and copy that says ana/kata relative to the slice reads as down/up.
+
+**4D → scene coordinates.** `local(X) = ((X−P)·R, (X−P)·U, −(X−P)·F)`, using the display frame `V`. The −F is because the three.js camera looks down −z. All scene geometry lives in these local coordinates; the scene origin is you.
 
 **Rebuild loop.** Anything that changes 4D state sets `dirty = true`. The frame loop calls `rebuild()` once, which regenerates geometry for every object in `WORLD` according to `VIEW.mode`. Geometry is rebuilt from scratch each time (cheap at this scale), and `clearGroup` disposes it.
 
@@ -53,7 +55,7 @@ Vanilla JS + three.js **r147**, bundled with Vite. There's no framework and no T
 - Keep the math exact and honest. If a view is schematic (Stack's sideways shift), say so in the UI copy.
 - New 4D objects: add an entry to `WORLD`, create render objects in the `WORLD.forEach` setup, and handle all three modes in `rebuild()`. Each mode must set `o.range` (for the ana–kata ruler), and Stack must set `o.stackInfo = { spacing, bottom, labels }` so the panel labels can follow.
 - UI copy is short, plain and specific. Explanations live in `VIEW_DESC` (global views) and `EXPLAIN` (Rubik's cube views and tricks).
-- Keyboard: W/A/S/D move, R/F height, E/Q ana/kata, J/L turn, I/K pitch into ana, U/O swing into ana, 1/2/3 switch views.
+- Keyboard: W/A/S/D move, R/F height, E/Q ana/kata, J/L turn, I/K pitch into ana, U/O swing into ana, 1/2/3 switch views, V toggles volume view.
 
 ## Refactor plan (suggested next steps)
 

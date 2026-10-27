@@ -8,6 +8,8 @@ Walk through a 4D world from inside a 3D slice. Move along x, y, z and ana/kata,
 - **Stack**: three parallel slices side by side, like CT scans of a 4D object.
 - **Shadow**: a 4D perspective projection, where the tesseract becomes a cube inside a cube.
 
+**Volume view** (V) works with all three: it lays your slice level, so you see x, z and w (w as up, until you tilt) and step through heights instead. Shapes that differ only in w spread out vertically, and the Rubik's cube's Y layers can be faced head-on.
+
 The world holds a tesseract, 24-cell, 600-cell, 16-cell, 5-cell, 6,6-duoprism, a glome, an Earth with a little 4D thickness (tilt to cut it open and see the core), and a twistable 3×3×3×3 Rubik's cube.
 
 ## Run
@@ -42,6 +44,7 @@ If Playwright's bundled Chromium isn't available on your system, point `PW_CHROM
 | J / L | turn |
 | I / K, U / O | tilt your slice into ana |
 | 1 / 2 / 3 | Slice / Stack / Shadow |
+| V | volume view: lay your slice level |
 
 Drag to orbit the camera; scroll or pinch to zoom.
 
