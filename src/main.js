@@ -707,8 +707,11 @@ function main() {
     document.querySelectorAll('#rk-axis button').forEach(b => b.setAttribute('aria-pressed', +b.dataset.v === RK.axis));
     document.querySelectorAll('#rk-val button').forEach(b => b.setAttribute('aria-pressed', +b.dataset.v === RK.val));
     const goto = document.getElementById('rk-goto');
-    goto.textContent = RK.axis === 1 ? 'Slice through layer' : 'Face this layer';
-    goto.title = RK.axis === 1 ? 'Y layers can’t be faced head-on: your slice always keeps y as up' : `Turn your slice perpendicular to ${AX[RK.axis]} and move into this layer`;
+    const yOnly = RK.axis === 1 && !VOL.on;
+    goto.textContent = yOnly ? 'Slice through layer' : 'Face this layer';
+    goto.title = yOnly ? 'Y layers can’t be faced head-on unless volume view (V) lays your slice level'
+      : RK.axis === 1 ? 'Move your level slice to this layer’s height'
+      : `Turn your slice perpendicular to ${AX[RK.axis]} and move into this layer`;
     const solved = !RK.anim && !RK.queue.length && isSolved();
     rkState.textContent = solved ? (RK.moves ? `solved in ${RK.moves}` : 'solved') : (RK.moves ? `${RK.moves} move${RK.moves === 1 ? '' : 's'}` : 'scrambled');
     rkState.classList.toggle('on', solved && RK.moves > 0);
@@ -753,7 +756,8 @@ function main() {
     slice: '<b>Slice.</b> The 3D cross-section your slice cuts through the puzzle. A twist looks like a rigid face turn only when your slice is perpendicular to the layer’s axis. Otherwise pieces cross in and out of your slice and change shape as they go.',
     stack: '<b>Stack.</b> For the cube the three slices sit exactly one layer apart: kata on the left, ana on the right. With a level slice that is all 81 positions at once. Twist in a plane that includes ana, such as X–W, and pieces leave one panel and arrive in the next: a 4D move seen as travel between neighboring 3D worlds.',
     shadow: '<b>Shadow.</b> A 4D perspective projection, the view MagicCube4D uses. Each sticker is a small cube. The eye sits ana of the puzzle, so the kata cell is the small cube in the middle, the six side cells are the shells around it, and the cell nearest the eye is hidden because it would wrap around everything. Hold Pitch forward Ana (I) and the puzzle turns inside out as the middle cell swings to the outside.',
-    face: '<b>Face this layer.</b> Ana now points along the layer’s axis, so the layer fills your slice as an ordinary 3×3×3 and all three of its twists are rigid turns. For Y–W twists, pick an X or Z layer. Y layers can only be sliced through, because your slice always keeps world y as up.',
+    face: '<b>Face this layer.</b> Ana now points along the layer’s axis, so the layer fills your slice as an ordinary 3×3×3 and all three of its twists are rigid turns. For Y–W twists, pick an X or Z layer. To face a Y layer, switch on Volume view (V) first: it lays your slice level.',
+    faceY: '<b>Face this layer.</b> Volume view slices level, so at the layer’s height the whole Y layer fills your slice as an ordinary 3×3×3. Its X–Z, X–W and Z–W twists are rigid turns.',
     diag: '<b>Diagonal view.</b> Ana points along (x + z + w)/√3, the 4D version of cutting a cube corner to corner. The section is a hexagonal prism: ±X, ±Z and ±W stickers on the six walls, ±Y on the top and bottom. Every layer crosses this slice, so every twist changes something you can see, though pieces cut at an angle morph as they turn.',
     mirror: '<b>Mirror via 4D.</b> A half-turn of the whole puzzle in the plane of your right direction and ana. No rotation in 3D can turn an object into its mirror image. A half-turn through a fourth axis does: left and right swap, stickers and all. Halfway through, your slice cuts across the layers it started parallel to. It is exact when your slice passes through the puzzle’s center. Tap again to turn it back.',
     spin: '<b>Double rotation.</b> The whole puzzle turns in the X–Y and Z–W planes at once, at the same rate. Every point moves and no axis stays fixed, which no 3D rotation can do. Turn it off and it stops at the next quarter-turn, where x has become y and z has become w. Try it in Shadow view.',
@@ -847,9 +851,18 @@ function main() {
     jump = { from: S.P.slice(), to: P, t: 0, dur: 1.3, frame: { from: { R: S.R, F: S.F, A: S.A }, to } };
   });
   document.getElementById('rk-goto').addEventListener('click', () => {
-    clearTricks(); if (VOL.on) setVolume(false); explain('face'); framePuzzle(VIEW.mode === 'stack' ? 1.6 : 1, 1.1);
+    clearTricks();
     const o = WORLD.find(w => w.puzzle);
     const T = o.center.slice(); T[RK.axis] += RK.val * o.pitch;
+    if (VOL.on && RK.axis === 1) {
+      // volume view already slices level: just move to the layer's height
+      explain('faceY'); framePuzzle(VIEW.mode === 'stack' ? 1.6 : 1, 1.1);
+      const to = add(S.P, mul(S.U, T[1] - S.P[1]));
+      if (reduceMotion) { S.P = to; dirty = true; } else jump = { from: S.P.slice(), to, t: 0 };
+      return;
+    }
+    if (VOL.on) setVolume(false);
+    explain('face'); framePuzzle(VIEW.mode === 'stack' ? 1.6 : 1, 1.1);
     let turn = null, Af = S.A;
     if (RK.axis !== 1) {
       // turn ana onto the layer axis (sign chosen for the shorter turn), within the x–z–w subspace
