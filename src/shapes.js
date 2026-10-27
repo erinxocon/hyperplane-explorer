@@ -34,3 +34,19 @@ export function duoprism(p, q) {
   for (let i = 0; i < p; i++) for (let j = 0; j < q; j++) { edges.push([id(i, j), id((i + 1) % p, j)]); edges.push([id(i, j), id(i, (j + 1) % q)]); }
   return { verts, edges };
 }
+export function cell600() {
+  // 120 vertices on the unit 3-sphere: 8 axis points, 16 of (±1/2)^4, and 96 even permutations of (±phi, ±1, ±1/phi, 0)/2.
+  const phi = (1 + Math.sqrt(5)) / 2, verts = [];
+  for (let a = 0; a < 4; a++) for (const s of [1, -1]) { const v = [0,0,0,0]; v[a] = s; verts.push(v); }
+  for (let i = 0; i < 16; i++) verts.push([0,1,2,3].map(b => (i >> b & 1) ? 0.5 : -0.5));
+  const base = [phi / 2, 0.5, 1 / (2 * phi), 0];
+  const even = [[0,1,2,3],[0,2,3,1],[0,3,1,2],[1,0,3,2],[1,2,0,3],[1,3,2,0],[2,0,1,3],[2,1,3,0],[2,3,0,1],[3,0,2,1],[3,1,0,2],[3,2,1,0]];
+  for (const p of even) for (let m = 0; m < 8; m++) {
+    const v = [0,0,0,0];
+    for (let k = 0; k < 3; k++) v[p[k]] = base[k] * (m >> k & 1 ? -1 : 1);
+    verts.push(v);
+  }
+  const edges = [], e2 = 1 / (phi * phi);
+  for (let i = 0; i < verts.length; i++) for (let j = i + 1; j < verts.length; j++) { const d = sub(verts[i], verts[j]); if (Math.abs(dot(d, d) - e2) < 1e-9) edges.push([i, j]); }
+  return { verts, edges };
+}
