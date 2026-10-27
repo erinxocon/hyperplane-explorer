@@ -8,7 +8,7 @@ Walk through a 4D world from inside a 3D slice. Move along x, y, z and ana/kata,
 - **Stack**: three parallel slices side by side, like CT scans of a 4D object.
 - **Shadow**: a 4D perspective projection, where the tesseract becomes a cube inside a cube.
 
-The world holds a tesseract, 24-cell, 16-cell, 5-cell, 6,6-duoprism, a glome, an Earth with a little 4D thickness (tilt to cut it open and see the core), and a twistable 3×3×3×3 Rubik's cube.
+The world holds a tesseract, 24-cell, 600-cell, 16-cell, 5-cell, 6,6-duoprism, a glome, an Earth with a little 4D thickness (tilt to cut it open and see the core), and a twistable 3×3×3×3 Rubik's cube.
 
 ## Run
 

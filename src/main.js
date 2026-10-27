@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { ConvexGeometry } from 'three/examples/jsm/geometries/ConvexGeometry.js';
 import { add, sub, mul, dot, norm, lerp, ident, rot, mm, mv, slerp } from './math4d.js';
-import { tesseract, cell16, cell24, cell5, duoprism } from './shapes.js';
+import { tesseract, cell16, cell24, cell5, duoprism, cell600 } from './shapes.js';
 import GLOBE_VS from './shaders/globe.vert.glsl?raw';
 import GLOBE_FS from './shaders/globe.frag.glsl?raw';
 import SURF_VS from './shaders/earth-cap.vert.glsl?raw';
@@ -23,6 +23,7 @@ function main() {
     { name: 'Rubik’s 3⁴', color: '#9a62e8', center: [3.4, 0.1, 2.6, 0], pitch: 0.62, size: 0.9, puzzle: true },
     { name: '5-cell', color: '#7fa9ff', center: [3.0, 0, 12.5, -0.3], scale: 1.35, shape: cell5(), orient: rot(0, 3, 0.3) },
     { name: 'Glome', color: '#f0d26e', center: [0, 0, 5, 3.2], radius: 1.35 },
+    { name: '600-cell', color: '#d98ae0', center: [-3.4, 0, 2.2, 3.0], scale: 1.7, shape: cell600(), orient: mm(rot(0, 3, 0.35), rot(1, 2, 0.5)) },
     { name: '6,6-duoprism', color: '#9fd468', center: [-2.6, 0, 11.5, -3.0], scale: 1.35, shape: duoprism(6, 6), orient: rot(1, 3, 0.55) },
   ];
   const FLOOR_Y = -2.4;
