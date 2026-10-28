@@ -87,3 +87,14 @@ export function spunKleinFiber(u) {
   return { c: [(cx - 0.15) * S, (cy - 2.1) * S, 0, 0], M: [[ax * S, ay * S, 0, 0], [0, 0, k * S, 0], [0, 0, 0, k * S]] };
 }
 export const spunKlein = (n = 192) => Array.from({ length: n + 1 }, (_, i) => spunKleinFiber(Math.PI * i / n));
+
+// 4D Möbius strip (Möbius strip × interval, or solid Klein bottle): a disk carried around a ring in x–z that comes
+// back mirrored, the way a Möbius strip is a segment that comes back flipped. The disk spans the ring's radial
+// direction and d(u) = cos(u/2)·y + sin(u/2)·w, so as it goes around it flips over through w. The fiber over u in
+// [0, 2pi] is the disk c + M·(a, b), a² + b² <= 1; at u = 2pi it is the u = 0 disk with b reversed. Its surface is a
+// Klein bottle, the way a Möbius strip's edge is a circle.
+export const mobiusFiber = (u, R = 1, r = 0.6) => {
+  const c = Math.cos(u), s = Math.sin(u);
+  return { c: [R * c, 0, R * s, 0], M: [[r * c, 0, r * s, 0], [0, r * Math.cos(u / 2), 0, r * Math.sin(u / 2)]] };
+};
+export const mobius4 = (n = 160) => Array.from({ length: n + 1 }, (_, i) => mobiusFiber(2 * Math.PI * i / n));

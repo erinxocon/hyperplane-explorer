@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { sub } from '../../src/math4d.js';
-import { tesseract, cell16, cell24, cell5, duoprism, cell600, klein, kleinPoint, spunKleinFiber } from '../../src/shapes.js';
+import { sub, dot } from '../../src/math4d.js';
+import { tesseract, cell16, cell24, cell5, duoprism, cell600, klein, kleinPoint, spunKleinFiber, mobius4 } from '../../src/shapes.js';
 
 const degrees = s => { const d = s.verts.map(() => 0); s.edges.forEach(([i, j]) => { d[i]++; d[j]++; }); return d; };
 const regular = (s, nv, ne, deg) => { assert.equal(s.verts.length, nv); assert.equal(s.edges.length, ne); assert.ok(degrees(s).every(x => x === deg)); };
@@ -75,4 +75,21 @@ test('3D Klein bottle: glued with a mirror flip, immersed, and its w = 0 slice i
   const u = 1.1, v = 2.3, q = X(u, [Math.cos(v), Math.sin(v), 0]);
   assert.equal(q[3], 0);
   assert.ok(Math.abs(q[2] * 2.1 - (2 / 15) * (3 + 5 * Math.cos(u) * Math.sin(u)) * Math.sin(v)) < 1e-12);
+});
+
+test('4D Möbius strip: the disk comes back mirrored, and a slice through every disk is a Möbius strip', () => {
+  const D = mobius4(200), first = D[0], last = D[200];
+  const close = (a, b) => a.forEach((x, i) => assert.ok(Math.abs(x - b[i]) < 1e-12));
+  close(last.c, first.c); close(last.M[0], first.M[0]); close(last.M[1], first.M[1].map(x => -x));
+  // tilted 0.233 rad in x–w and offset 0.23: the hyperplane n·X = c crosses every disk, in the chord α a + β b = δ
+  const n = [Math.sin(0.233), 0, 0, Math.cos(0.233)], c = 0.23;
+  const chord = f => {
+    const al = dot(f.M[0], n), be = dot(f.M[1], n), del = c - dot(f.c, n);
+    assert.ok(del * del < al * al + be * be);
+    return [0, 1, 2, 3].map(i => -be * f.M[0][i] + al * f.M[1][i]);   // the chord's direction in 4D
+  };
+  const T = D.map(chord);
+  // the direction varies continuously around the loop, and comes back reversed on the same chord: a Möbius strip
+  for (let i = 1; i < T.length; i++) assert.ok(dot(T[i], T[i - 1]) > 0);
+  assert.ok(dot(T[200], T[0]) < 0);
 });
