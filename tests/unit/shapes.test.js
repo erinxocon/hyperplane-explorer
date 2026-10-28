@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { sub } from '../../src/math4d.js';
-import { tesseract, cell16, cell24, cell5, duoprism, cell600, klein, kleinPoint } from '../../src/shapes.js';
+import { tesseract, cell16, cell24, cell5, duoprism, cell600, klein, kleinPoint, spunKleinFiber } from '../../src/shapes.js';
 
 const degrees = s => { const d = s.verts.map(() => 0); s.edges.forEach(([i, j]) => { d[i]++; d[j]++; }); return d; };
 const regular = (s, nv, ne, deg) => { assert.equal(s.verts.length, nv); assert.equal(s.edges.length, ne); assert.ok(degrees(s).every(x => x === deg)); };
@@ -48,4 +48,31 @@ test('Klein bottle: closed, Euler characteristic 0, non-orientable, embedded', (
   let min = Infinity;
   for (let i = 0; i < k.verts.length; i++) for (let j = i + 1; j < k.verts.length; j++) min = Math.min(min, Math.hypot(...sub(k.verts[i], k.verts[j])));
   assert.ok(min > 1e-3);
+});
+
+test('3D Klein bottle: glued with a mirror flip, immersed, and its w = 0 slice is the glass bottle', () => {
+  const X = (u, p) => { const f = spunKleinFiber(u); return [0, 1, 2, 3].map(i => f.c[i] + f.M[0][i] * p[0] + f.M[1][i] * p[1] + f.M[2][i] * p[2]); };
+  const close = (a, b) => a.forEach((x, i) => assert.ok(Math.abs(x - b[i]) < 1e-12));
+  const p = [0.6, 0.48, 0.64];
+  close(X(Math.PI, p), X(0, [-p[0], p[1], p[2]]));
+  // immersed: at every sampled point the u-derivative and two tangents of the fiber sphere are independent
+  const h = 1e-6, Mp = (f, v) => [0, 1, 2, 3].map(i => f.M[0][i] * v[0] + f.M[1][i] * v[1] + f.M[2][i] * v[2]);
+  let margin = Infinity;
+  for (let i = 0; i < 120; i++) for (let j = 1; j < 16; j++) for (let l = 0; l < 16; l++) {
+    const u = Math.PI * (i + 0.5) / 120, a = Math.PI * j / 16, b = 2 * Math.PI * l / 16;
+    const q = [Math.cos(a), Math.sin(a) * Math.cos(b), Math.sin(a) * Math.sin(b)];
+    const t1 = [-Math.sin(a), Math.cos(a) * Math.cos(b), Math.cos(a) * Math.sin(b)], t2 = [0, -Math.sin(b), Math.cos(b)];
+    const f = spunKleinFiber(u);
+    const basis = [];
+    for (const c of [sub(X(u + h, q), X(u, q)), Mp(f, t1), Mp(f, t2)]) {
+      let w = c.slice();
+      for (const e of basis) { const d = w.reduce((acc, x, k) => acc + x * e[k], 0); w = w.map((x, k) => x - d * e[k]); }
+      const n = Math.hypot(...w); margin = Math.min(margin, n / Math.hypot(...c)); basis.push(w.map(x => x / n));
+    }
+  }
+  assert.ok(margin > 0.5);
+  // p2 = 0 gives w = 0: the classic bottle, z = (2/15)(3 + 5 cos u sin u) sin v before scaling
+  const u = 1.1, v = 2.3, q = X(u, [Math.cos(v), Math.sin(v), 0]);
+  assert.equal(q[3], 0);
+  assert.ok(Math.abs(q[2] * 2.1 - (2 / 15) * (3 + 5 * Math.cos(u) * Math.sin(u)) * Math.sin(v)) < 1e-12);
 });

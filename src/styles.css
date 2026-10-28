@@ -87,7 +87,7 @@ h2 span { letter-spacing: 0.04em; text-transform: none; }
 .ruler { display: grid; gap: 5px; }
 .row-btn {
   appearance: none; background: none; border: 0; color: inherit; padding: 3px 0; cursor: pointer; font: inherit;
-  display: grid; grid-template-columns: 96px minmax(0, 1fr); align-items: center; gap: 10px; text-align: left; border-radius: 4px;
+  display: grid; grid-template-columns: 108px minmax(0, 1fr); align-items: center; gap: 10px; text-align: left; border-radius: 4px;
 }
 .row-btn:hover .track { background: color-mix(in srgb, var(--ink) 7%, transparent); }
 .row-btn .nm { font-size: 12.5px; display: flex; align-items: center; gap: 7px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -108,12 +108,14 @@ h2 span { letter-spacing: 0.04em; text-transform: none; }
 .eye[aria-pressed="false"] .on { display: none; }
 .eye[aria-pressed="false"] .off { display: block; }
 .shape-row.hidden-shape .nm { text-decoration: line-through; text-decoration-color: var(--muted); }
+.twisted { position: relative; display: inline-block; }   /* ×̃, the twisted product: the combining tilde misplaces in most fonts */
+.twisted::after { content: "~"; position: absolute; left: 0; right: 0; top: -0.5em; text-align: center; font-size: 0.85em; }
 .shape-row.hidden-shape .bar { opacity: .15 !important; }
 .vis-all { display: inline-flex; gap: 6px; }
 .vis-all button { appearance: none; font: 500 11px var(--mono); letter-spacing: .02em; text-transform: none; color: var(--muted); background: none; border: 1px solid var(--line); border-radius: 10px; padding: 2px 9px; cursor: pointer; white-space: nowrap; }
 .vis-all button:hover { color: var(--ink); background: var(--key); }
 .vis-all button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-.axis { display: grid; grid-template-columns: 130px minmax(0, 1fr); gap: 10px; font: 10.5px var(--mono); color: var(--muted); }
+.axis { display: grid; grid-template-columns: 142px minmax(0, 1fr); gap: 10px; font: 10.5px var(--mono); color: var(--muted); }
 .axis div { display: flex; justify-content: space-between; }
 .axis .mid { color: var(--accent); }
 .layers { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }

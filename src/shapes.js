@@ -71,3 +71,19 @@ export function klein(nu = 96, nv = 32, R = 1, r = 0.4) {
   }
   return { verts, tris, grid, nu, nv };
 }
+
+// The 3D Klein bottle S² ×̃ S¹: a sphere carried around a loop that comes back mirrored. It is the glass
+// Klein bottle (a circle carried around a loop, Wikipedia's "bottle" parametrization) with each circle swapped
+// for a sphere that bulges into w; equivalently, half the glass bottle spun about its mirror plane z = 0
+// through w. The fiber over u in [0, pi] is the ellipsoid X(u, p) = c + M p, p on the unit sphere, with M's
+// columns M[0..2]. (pi, p) is the same point as (0, (-p0, p1, p2)). Unlike the 2D bottle it can't avoid
+// itself in 4D: it passes through itself along a sphere. Upright along y, scaled to unit half-height.
+export function spunKleinFiber(u) {
+  const c = Math.cos(u), s = Math.sin(u), S = 1 / 2.1;
+  const ax = -(2 / 15) * c * (3 + 5 * c * s);
+  const ay = -(1 / 15) * s * (3 - 3 * c ** 2 - 48 * c ** 4 + 48 * c ** 6 + 5 * c * s - 5 * c ** 3 * s - 80 * c ** 5 * s + 80 * c ** 7 * s);
+  const cx = -(2 / 15) * c * (-30 * s + 90 * c ** 4 * s - 60 * c ** 6 * s), cy = 4 * s * s;
+  const k = (2 / 15) * (3 + 5 * c * s);
+  return { c: [(cx - 0.15) * S, (cy - 2.1) * S, 0, 0], M: [[ax * S, ay * S, 0, 0], [0, 0, k * S, 0], [0, 0, 0, k * S]] };
+}
+export const spunKlein = (n = 192) => Array.from({ length: n + 1 }, (_, i) => spunKleinFiber(Math.PI * i / n));
