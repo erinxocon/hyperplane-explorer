@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { ConvexGeometry } from 'three/examples/jsm/geometries/ConvexGeometry.js';
 import { add, sub, mul, dot, norm, lerp, ident, rot, mm, mv, slerp } from './math4d.js';
-import { tesseract, cell16, cell24, cell5, duoprism, cell600 } from './shapes.js';
+import { tesseract, cell16, cell24, cell5, duoprism, cell600, klein } from './shapes.js';
 import GLOBE_VS from './shaders/globe.vert.glsl?raw';
 import GLOBE_FS from './shaders/globe.frag.glsl?raw';
 import SURF_VS from './shaders/earth-cap.vert.glsl?raw';
@@ -25,6 +25,7 @@ function main() {
     { name: 'Glome', color: '#f0d26e', center: [0, 0, 5, 3.2], radius: 1.35 },
     { name: '600-cell', color: '#d98ae0', center: [-3.4, 0, 2.2, 3.0], scale: 1.7, shape: cell600(), orient: mm(rot(0, 3, 0.35), rot(1, 2, 0.5)) },
     { name: '6,6-duoprism', color: '#9fd468', center: [-2.6, 0, 11.5, -3.0], scale: 1.35, shape: duoprism(6, 6), orient: rot(1, 3, 0.55) },
+    { name: 'Klein bottle', color: '#e8845c', center: [3.2, 0, 6.6, 0.2], scale: 1.1, surface: klein(), orient: mm(rot(0, 3, 0.35), rot(1, 3, 0.4)) },
   ];
   const FLOOR_Y = -2.4;
 
@@ -188,6 +189,16 @@ function main() {
       o.balls = [0, 1, 2].map(() => { const b = new THREE.Mesh(sphereGeo, o.mat); o.group.add(b); return b; });
       o.wire = new THREE.LineSegments(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ vertexColors: true }));
       o.group.add(o.wire);
+    } else if (o.surface) {
+      // slices are curves, drawn as thin tubes; Shadow draws the projected skin and a grid of its tube circles
+      const n = o.surface.tris.length, tmat = new THREE.MeshStandardMaterial({ roughness: 0.5, metalness: 0.05 });
+      o.rad4 = Math.max(...o.surface.verts.map(v => Math.hypot(...v))) * o.scale;
+      o.tubes = new THREE.InstancedMesh(TUBE, tmat, 3 * n);
+      o.knobs = new THREE.InstancedMesh(KNOB, tmat, 3 * n);
+      o.tubes.frustumCulled = o.knobs.frustumCulled = false;
+      o.skin = new THREE.Mesh(new THREE.BufferGeometry(), new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.6, side: THREE.DoubleSide, transparent: true, opacity: 0.4, depthWrite: false }));
+      o.wire = new THREE.LineSegments(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ vertexColors: true }));
+      o.group.add(o.tubes, o.knobs, o.skin, o.wire);
     } else {
       o.dyn = new THREE.Group(); o.group.add(o.dyn);
       o.rad4 = Math.max(...o.shape.verts.map(v => Math.hypot(...v))) * o.scale;
@@ -196,6 +207,7 @@ function main() {
       o.knobs = new THREE.InstancedMesh(KNOB, wmat, o.shape.verts.length);
       o.group.add(o.tubes, o.knobs);
     }
+    o.baseCol = col;
     o.dimCol = col.clone().lerp(GROUND, 0.72);
     o.brightCol = col.clone().lerp(new THREE.Color(0xffffff), 0.3);
   });
@@ -266,7 +278,7 @@ function main() {
   }
   // Shadow: perspective projection along ana from an eye 1.6 radii ana of the center. Edges become tubes,
   // shaded from dim (kata, far from the eye) to bright (ana, near it).
-  const _d = new THREE.Object3D(), _up = new THREE.Vector3(0, 1, 0), _v = new THREE.Vector3(), _c = new THREE.Color();
+  const _d = new THREE.Object3D(), _up = new THREE.Vector3(0, 1, 0), _v = new THREE.Vector3(), _c = new THREE.Color(), _white = new THREE.Color(0xffffff);
   const KATA_TINT = new THREE.Color(css.getPropertyValue('--kata').trim()), ANA_TINT = new THREE.Color(css.getPropertyValue('--ana').trim()), TINT = 0.3;
   // brightness runs dim -> bright with t; the far (kata) end also leans cool and the near (ana) end warm.
   // The tint shifts hue only: the result is rescaled to the untinted luma so the brightness depth cue is kept.
@@ -287,17 +299,20 @@ function main() {
       return { p: new THREE.Vector3(base.x + dot(r, V.R) * k, base.y + dot(r, V.U) * k, base.z - dot(r, V.F) * k), a, k };
     };
   }
+  // matrix for a TUBE instance of radius rr from a to b
+  const tubeMatrix = (a, b, rr) => {
+    const len = a.distanceTo(b);
+    _d.position.copy(a).add(b).multiplyScalar(0.5);
+    if (len > 1e-6) _d.quaternion.setFromUnitVectors(_up, _v.subVectors(b, a).normalize()); else _d.quaternion.identity();
+    _d.scale.set(rr, Math.max(len, 1e-4), rr); _d.updateMatrix();
+    return _d.matrix;
+  };
   function buildWire(o, W) {
     clearGroup(o.dyn);
     const proj = projector(o.center, 1.6 * o.rad4);
     const PV = W.map(proj);
     o.shape.edges.forEach(([i, j], n) => {
-      const a = PV[i].p, b = PV[j].p, len = a.distanceTo(b);
-      _d.position.copy(a).add(b).multiplyScalar(0.5);
-      if (len > 1e-6) _d.quaternion.setFromUnitVectors(_up, _v.subVectors(b, a).normalize()); else _d.quaternion.identity();
-      const rr = 0.018 * (PV[i].k + PV[j].k) / 2;
-      _d.scale.set(rr, Math.max(len, 1e-4), rr); _d.updateMatrix();
-      o.tubes.setMatrixAt(n, _d.matrix);
+      o.tubes.setMatrixAt(n, tubeMatrix(PV[i].p, PV[j].p, 0.018 * (PV[i].k + PV[j].k) / 2));
       o.tubes.setColorAt(n, shadeAt(o, ((PV[i].a + PV[j].a) / 2 / o.rad4 + 1) / 2));
     });
     PV.forEach((v, n) => {
@@ -317,6 +332,65 @@ function main() {
       if ((a < -EPS && b > EPS) || (a > EPS && b < -EPS)) push(lerp(W[i], W[j], a / (a - b)));
     }
     return { pts, dA };
+  }
+
+  // Klein bottle: a surface, so a hyperplane meets it in curves. Marching triangles: every mesh triangle
+  // the hyperplane P + off·A crosses gives one segment of the curve.
+  function surfaceCuts(o, W, off) {
+    const f = W.map(v => dot(sub(v, V.P), V.A) - off), segs = [];
+    for (const t of o.surface.tris) {
+      const ends = [];
+      for (let e = 0; e < 3; e++) {
+        const i = t[e], j = t[(e + 1) % 3];
+        if ((f[i] >= 0) !== (f[j] >= 0)) ends.push(local(lerp(W[i], W[j], f[i] / (f[i] - f[j]))));
+      }
+      if (ends.length === 2) segs.push(ends);
+    }
+    return segs;
+  }
+  // Draw curves as chains of tubes, each segment { a, b, rr, color }.
+  function drawTubes(o, segs) {
+    segs.forEach(({ a, b, rr, color }, n) => {
+      o.tubes.setMatrixAt(n, tubeMatrix(a, b, rr));
+      _d.position.copy(a); _d.quaternion.identity(); _d.scale.setScalar(rr); _d.updateMatrix();
+      o.knobs.setMatrixAt(n, _d.matrix);
+      o.tubes.setColorAt(n, color); o.knobs.setColorAt(n, color);
+    });
+    o.tubes.count = o.knobs.count = segs.length;
+    for (const im of [o.tubes, o.knobs]) { im.instanceMatrix.needsUpdate = true; if (im.instanceColor) im.instanceColor.needsUpdate = true; }
+  }
+  // Slice and Stack: the cut curves, each panel's shifted sideways by `shift` (Stack).
+  const drawCuts = (o, panels) => drawTubes(o, panels.flatMap(({ segs, shift }) =>
+    segs.map(([a, b]) => ({ a: a.setX(a.x + shift), b: b.setX(b.x + shift), rr: 0.028, color: o.baseCol }))));
+  // Shadow: the projected skin, shaded kata -> ana like the wireframes, with the tube circles every 1/24 turn.
+  // A thicker line runs along the top of the tube (v = pi/2); after one lap it comes back underneath (v = -pi/2),
+  // and it takes a second lap to close.
+  function buildSurfaceShadow(o, W) {
+    const proj = projector(o.center, 1.6 * o.rad4), PV = W.map(proj);
+    const { grid, nu, nv } = o.surface, g = (i, j) => i * (nv + 1) + j;
+    const pos = [], col = [], idx = [], lpos = [], lcol = [];
+    for (const k of grid) {
+      const P = PV[k], c = shadeAt(o, (P.a / o.rad4 + 1) / 2);
+      pos.push(P.p.x, P.p.y, P.p.z); col.push(c.r, c.g, c.b);
+    }
+    for (let i = 0; i < nu; i++) for (let j = 0; j < nv; j++) idx.push(g(i, j), g(i + 1, j), g(i + 1, j + 1), g(i, j), g(i + 1, j + 1), g(i, j + 1));
+    const line = (a, b) => { for (const k of [a, b]) { lpos.push(pos[3 * k], pos[3 * k + 1], pos[3 * k + 2]); _c.setRGB(col[3 * k], col[3 * k + 1], col[3 * k + 2]).lerp(_white, 0.35); lcol.push(_c.r, _c.g, _c.b); } };
+    for (let i = 0; i < nu; i += nu / 24) for (let j = 0; j < nv; j++) line(g(i, j), g(i, j + 1));
+    const ridge = [];
+    for (const j of [nv / 4, 3 * nv / 4]) for (let i = 0; i < nu; i++) {
+      const a = PV[grid[g(i, j)]], b = PV[grid[g(i + 1, j)]];
+      ridge.push({ a: a.p, b: b.p, rr: 0.012 * (a.k + b.k), color: shadeAt(o, ((a.a + b.a) / 2 / o.rad4 + 1) / 2).clone().lerp(_white, 0.55) });
+    }
+    drawTubes(o, ridge);
+    const skin = new THREE.BufferGeometry();
+    skin.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    skin.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+    skin.setIndex(idx); skin.computeVertexNormals();
+    o.skin.geometry.dispose(); o.skin.geometry = skin;
+    const wire = new THREE.BufferGeometry();
+    wire.setAttribute('position', new THREE.Float32BufferAttribute(lpos, 3));
+    wire.setAttribute('color', new THREE.Float32BufferAttribute(lcol, 3));
+    o.wire.geometry.dispose(); o.wire.geometry = wire;
   }
 
   /* ---------- 4D Rubik's cube (3x3x3x3) ---------- */
@@ -559,6 +633,21 @@ function main() {
         } else buildGlomeShadow(o, spinM);
         continue;
       }
+      if (o.surface) {
+        const M = spinM ? mm(spinM, o.orient) : o.orient;
+        const W = o.surface.verts.map(v => add(o.center, mul(mv(M, v), o.scale)));
+        const dA = W.map(v => dot(sub(v, V.P), V.A));
+        o.range = [Math.min(...dA), Math.max(...dA)];
+        o.skin.visible = o.wire.visible = mode === 'shadow';
+        if (mode === 'slice') drawCuts(o, [{ segs: surfaceCuts(o, W, 0), shift: 0 }]);
+        else if (mode === 'stack') {
+          const [lo, hi] = o.range, mid = (lo + hi) / 2, step = (hi - lo) / 4, spacing = 2 * o.rad4 + 0.7;
+          drawCuts(o, [-1, 0, 1].map(k => ({ segs: surfaceCuts(o, W, mid + k * step), shift: k * spacing })));
+          const half = Math.max(...W.map(v => Math.abs(dot(sub(v, o.center), V.U))));
+          o.stackInfo = { spacing, bottom: -(half + 0.35), labels: stackLabels() };
+        } else buildSurfaceShadow(o, W);
+        continue;
+      }
       const M = spinM ? mm(spinM, o.orient) : o.orient;
       const W = o.shape.verts.map(v => add(o.center, mul(mv(M, v), o.scale)));
       const dA = W.map(v => dot(sub(v, V.P), V.A));
@@ -778,9 +867,9 @@ function main() {
     camTween = { t: 0, dur: reduceMotion ? 0 : 0.7, fromT: toT.clone(), fromP: camera.position.clone(), to: () => [toT, toP] };
   }
   const VIEW_DESC = {
-    slice: '<b>Slice</b> shows what a 3D being living in your hyperplane would see: each shape cut by your slice, and only what the slice crosses.',
+    slice: '<b>Slice</b> shows what a 3D being living in your hyperplane would see: each shape cut by your slice, and only what the slice crosses. The Klein bottle is a surface, not a solid, so a slice meets it in curves, drawn as thin tubes.',
     stack: '<b>Stack</b> cuts every shape with three parallel slices spaced along ana and lays them side by side, kata on the left, ana on the right, like CT scans of a 4D object. Shapes appear whether or not your own slice crosses them, so ones that differ only in w overlap; use the eye toggles to separate them.',
-    shadow: '<b>Shadow</b> is a 4D perspective projection along ana: what a 4D eye ana of each shape would see on its 3D retina. Parts further kata shrink toward the middle. Polytopes become the classic nested wireframes and the glome shows a Clifford torus between two linked circles; on both, edges further kata are dimmer and bluer and edges nearer the eye brighter and warmer. Earth shows its two w-caps joined like a drawn cylinder, with the cap nearer the eye see-through. Shapes that differ only in w, like the tesseract, glome and 16-cell, land on the same spot; use the eye toggles to pull them apart.',
+    shadow: '<b>Shadow</b> is a 4D perspective projection along ana: what a 4D eye ana of each shape would see on its 3D retina. Parts further kata shrink toward the middle. Polytopes become the classic nested wireframes and the glome shows a Clifford torus between two linked circles; on both, edges further kata are dimmer and bluer and edges nearer the eye brighter and warmer. Earth shows its two w-caps joined like a drawn cylinder, with the cap nearer the eye see-through. The Klein bottle’s shadow has to pass through itself, though the bottle in 4D does not. Shapes that differ only in w, like the tesseract, glome and 16-cell, land on the same spot; use the eye toggles to pull them apart.',
   };
   const VOL_DESC = ' <b>Volume view is on:</b> your slice lies level, so here ana means down and kata means up.';
   const viewDesc = document.getElementById('view-desc');

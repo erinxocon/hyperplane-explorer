@@ -50,3 +50,24 @@ export function cell600() {
   for (let i = 0; i < verts.length; i++) for (let j = i + 1; j < verts.length; j++) { const d = sub(verts[i], verts[j]); if (Math.abs(dot(d, d) - e2) < 1e-9) edges.push([i, j]); }
   return { verts, edges };
 }
+
+// Klein bottle embedded in R^4: a ring of radius R in the x–z plane whose tube circle (radius r) spans the
+// radial direction and cos(u/2)·y + sin(u/2)·w. Going once around, the tube turns half a turn through w and
+// comes back flipped, so (u + 2pi, v) is the same point as (u, -v). Nothing passes through itself.
+export const kleinPoint = (u, v, R = 1, r = 0.4) => {
+  const k = R + r * Math.cos(v), s = r * Math.sin(v);
+  return [k * Math.cos(u), s * Math.cos(u / 2), k * Math.sin(u), s * Math.sin(u / 2)];
+};
+// A closed triangle mesh of it: verts are the nu*nv distinct points; tris index them with the seams glued,
+// including the flip. grid[i*(nv+1)+j] is the vertex at (u, v) = (2pi i/nu, 2pi j/nv) for i <= nu, j <= nv.
+export function klein(nu = 96, nv = 32, R = 1, r = 0.4) {
+  const verts = [], tris = [], grid = [];
+  for (let i = 0; i < nu; i++) for (let j = 0; j < nv; j++) verts.push(kleinPoint(2 * Math.PI * i / nu, 2 * Math.PI * j / nv, R, r));
+  const id = (i, j) => i === nu ? ((nv - j) % nv) : i * nv + j % nv;
+  for (let i = 0; i <= nu; i++) for (let j = 0; j <= nv; j++) grid.push(id(i, j));
+  for (let i = 0; i < nu; i++) for (let j = 0; j < nv; j++) {
+    const a = id(i, j), b = id(i + 1, j), c = id(i + 1, j + 1), d = id(i, j + 1);
+    tris.push([a, b, c], [a, c, d]);
+  }
+  return { verts, tris, grid, nu, nv };
+}
