@@ -20,6 +20,15 @@ The world holds a tesseract, 24-cell, 600-cell, 16-cell, 5-cell, 6,6-duoprism, a
 - Forward is both z and w. White starts at z = w = 1, black at z = w = 4, and pawns promote on the far corner plane.
 - **Slice**, **Stack** and **Shadow** work as in the explorer. You can also choose which axis your slice is perpendicular to, which cuts the same position into four 3D boards another way.
 
+## 4D spinning cat
+
+`cat.html` is a third page: the OIIA OIIA cat, a brown tabby a little thick in w, spinning in 4D in front of a 4D TV that plays the song from YouTube. You walk it exactly as you walk the explorer, with the same keys, views and volume view.
+
+- **Spins**: the meme spin around y, a turn through w (half a turn on, the cat comes back as its mirror image: its tail curls the other way and its white sock is on the other paw), both at once, or a double rotation.
+- **The TV** is a box thick in w. In Shadow it shows as a box in a box joined at the corners, with a small tesseract spinning on its antenna.
+- **The picture** is YouTube's own player, laid on the screen with CSS 3D transforms through the same 4D maps as everything else. Your slice cuts it: swing sideways into ana (U, O) and it narrows to a stretched band; step ana or kata and the band slides across. Nothing 3D is ever drawn over it.
+- `cat.html?v=<video id>` plays a different YouTube video.
+
 ## Run
 
 ```sh
@@ -57,5 +66,7 @@ If Playwright's bundled Chromium isn't available on your system, point `PW_CHROM
 Drag to orbit the camera; scroll or pinch to zoom.
 
 In 4D chess, click a piece and then a marked cell. Q / E step your slice kata / ana, 1 / 2 / 3 switch views, and Esc clears the selection.
+
+On the cat page the explorer's keys all work, and Space plays or pauses.
 
 Coastlines: Natural Earth via [world-atlas](https://github.com/topojson/world-atlas) (public domain).

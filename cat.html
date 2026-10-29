@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>4D Spinning Cat</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+</head>
+<body>
+<div class="app">
+  <div class="view" id="view">
+    <div class="hud top" id="hud">
+      <span>x <b id="px">0.00</b></span><span>y <b id="py">0.00</b></span><span>z <b id="pz">0.00</b></span><span class="w">w <b id="pw">0.00</b></span>
+    </div>
+    <div class="hud turn"><span id="hud-turn"></span><span class="mirror" id="hud-mirror" hidden>mirror image</span></div>
+    <canvas class="compass" id="compass" aria-label="Compass: where the world x, y, z and w axes point from your view" role="img"></canvas>
+    <div class="hud bottom">Drag to orbit · scroll or pinch to zoom · space plays</div>
+    <div class="tags" id="stack-tags" hidden><span class="tag"></span><span class="tag"></span><span class="tag"></span></div>
+  </div>
+
+  <aside class="panel">
+    <header>
+      <h1>4D Spinning Cat</h1>
+      <p class="lede">The OIIA cat, a little thick in <em>w</em>, spins in four dimensions in front of a 4D TV. You stand in a 3D slice of their world, as in the explorer: walk, step <em>ana</em> or <em>kata</em>, or tilt your slice, and you see whatever crosses it, the picture on the TV included.</p>
+    </header>
+
+    <section>
+      <h2>Music</h2>
+      <button class="key play" type="button" id="play" aria-pressed="false">▶ Play OIIA OIIA<kbd>space</kbd></button>
+      <p class="note" id="music-note">“OIIA OIIA (Spinning Cat)” by W&amp;W, playing from YouTube on the 4D TV. The cat spins while it plays.</p>
+    </section>
+
+    <section>
+      <h2>Spin</h2>
+      <div class="seg spin-seg" id="spin" role="group" aria-label="Spin">
+        <button type="button" id="spin-y" data-v="y">3D</button><button type="button" id="spin-w" data-v="w">Through w</button><button type="button" id="spin-both" data-v="both">Both</button><button type="button" id="spin-double" data-v="double">Double</button>
+      </div>
+      <p class="note" id="spin-desc"></p>
+      <label class="speed" for="speed">Speed <input type="range" id="speed" min="0.25" max="2" step="0.05" value="1"></label>
+    </section>
+
+    <section>
+      <h2>View <span>keys 1 · 2 · 3</span></h2>
+      <div class="seg view-seg" id="view-mode" role="group" aria-label="View">
+        <button type="button" id="vm-slice" data-v="slice">Slice</button><button type="button" id="vm-stack" data-v="stack">Stack</button><button type="button" id="vm-shadow" data-v="shadow">Shadow</button>
+      </div>
+      <p class="note" id="view-desc"></p>
+    </section>
+
+    <section>
+      <h2>Move <span>hold to keep going</span></h2>
+      <div class="move">
+        <div class="cluster planar">
+          <button class="key fwd" data-act="move:F:1" id="k-fwd">Forward<kbd>W</kbd></button>
+          <button class="key lft" data-act="move:R:-1" id="k-left">Left<kbd>A</kbd></button>
+          <button class="key bck" data-act="move:F:-1" id="k-back">Back<kbd>S</kbd></button>
+          <button class="key rgt" data-act="move:R:1" id="k-right">Right<kbd>D</kbd></button>
+          <small>within slice</small>
+        </div>
+        <div class="cluster">
+          <button class="key" data-act="move:U:1" id="k-up">Up<kbd>R</kbd></button>
+          <button class="key" data-act="move:U:-1" id="k-down">Down<kbd>F</kbd></button>
+          <small>height</small>
+        </div>
+        <div class="cluster">
+          <button class="key w" data-act="move:A:1" id="k-ana">Ana<kbd>E</kbd></button>
+          <button class="key w" data-act="move:A:-1" id="k-kata">Kata<kbd>Q</kbd></button>
+          <small>4th axis</small>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>Rotate the slice</h2>
+      <div class="rot">
+        <div class="lbl">Turn<code>R–F plane</code></div>
+        <button class="key" data-act="rot:RF:-1" id="r-tl">Left<kbd>J</kbd></button>
+        <button class="key" data-act="rot:RF:1" id="r-tr">Right<kbd>L</kbd></button>
+        <div class="lbl">Pitch forward<code>F–A plane</code></div>
+        <button class="key w" data-act="rot:FA:-1" id="r-fk">Kata<kbd>K</kbd></button>
+        <button class="key w" data-act="rot:FA:1" id="r-fa">Ana<kbd>I</kbd></button>
+        <div class="lbl">Swing sideways<code>R–A plane</code></div>
+        <button class="key w" data-act="rot:RA:-1" id="r-rk">Kata<kbd>U</kbd></button>
+        <button class="key w" data-act="rot:RA:1" id="r-ra">Ana<kbd>O</kbd></button>
+      </div>
+      <label class="switch vol" for="volume"><input type="checkbox" id="volume"><span></span>Volume view <kbd>V</kbd></label>
+      <p class="note">Lays your slice level: the view turns 90° in the up–ana plane, so your ana direction shows as up (that’s w until you tilt) and R/F step through heights. Your own frame and the other controls don’t change.</p>
+    </section>
+
+    <section>
+      <h2>In this world</h2>
+      <div class="ruler" id="ruler"></div>
+      <div class="axis"><span></span><div><span id="ax-lo">kata −6</span><span class="mid">your slice</span><span id="ax-hi">+6 ana</span></div></div>
+      <p class="note">Each bar is a thing’s extent along your ana direction (kata to the left). Bars crossing the line cross your slice. Tap a name to center your slice on it.</p>
+    </section>
+
+    <section>
+      <h2>Your frame <span>basis in world x y z w</span></h2>
+      <div class="mtx-wrap"><table class="mtx" id="mtx"></table></div>
+      <p class="note">The compass in the corner of the view shows the world x, y, z and w axes from your camera; an arrow is shorter the more its axis leaves your slice.</p>
+    </section>
+
+    <section class="opts">
+      <a class="ghost" href="./index.html">← Hyperplane Explorer</a>
+      <a class="ghost" href="./chess.html">4D chess</a>
+      <button class="ghost" id="reset" type="button">Reset position</button>
+    </section>
+  </aside>
+</div>
+<script type="module" src="/src/cat/main.js"></script>
+</body>
+</html>

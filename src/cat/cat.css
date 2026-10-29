@@ -1,0 +1,35 @@
+/* 4D spinning cat: additions to styles.css. Every color is a token on :root, as there. */
+:root {
+  /* the meme cat: a brown mackerel tabby (fur.js) */
+  --fur-dark: #221e1a;
+  --fur-base: #4c4339;
+  --fur-light: #6f6052;
+  --fur-cream: #bcb09f;
+  --fur-white: #ddd6cb;
+  --fur-iris: #a9ad5a;
+  --fur-pupil: #141210;
+  --fur-nose: #b37b72;
+  --fur-ear: #c5978c;
+  --cut: #e9b98a;      /* the flat faces where your slice cuts through the cat */
+  --chrome: #d3dae4;
+  --tv: #151a23;
+  --glass: #06080b;
+  --tv-cut: #3a4252;   /* the TV's cut faces */
+  --screen: #000000;
+}
+.hud.turn { top: 36px; left: max(16px, env(safe-area-inset-left, 0px)); display: flex; gap: 12px; }
+.hud.turn .mirror { color: var(--accent); }
+.play { width: 100%; min-height: 52px; font-size: 15px; }
+.play[aria-pressed="true"] { background: color-mix(in srgb, var(--accent) 18%, var(--key)); color: var(--accent); }
+.note a { color: var(--accent); }
+/* the TV's picture: a CSS3D layer above the canvas; only the screen itself takes the pointer */
+.css3d { position: absolute; inset: 0; z-index: 1; pointer-events: none; }
+.view .hud, .view canvas.compass, .view .tags { z-index: 2; }
+.tv-screen { width: 640px; height: 360px; display: grid; background: var(--screen); pointer-events: auto; }
+.tv-screen > * { grid-area: 1 / 1; }
+.tv-screen iframe { width: 100%; height: 100%; border: 0; }
+.no-signal { place-self: center; font: 500 28px var(--mono); letter-spacing: .3em; color: var(--muted); }
+.spin-seg { display: flex; width: 100%; }
+.spin-seg button { flex: 1; font-family: var(--body); font-size: 13px; }
+.speed { display: flex; align-items: center; gap: 12px; margin-top: 12px; font-size: 13px; }
+.speed input { flex: 1; accent-color: var(--accent); }

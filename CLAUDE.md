@@ -1,16 +1,16 @@
 # Hyperplane Explorer
 
-An interactive 4D explorer, plus 4D chess on a second page (`chess.html`, see the end of this file). The viewer is a 3D being in a hyperplane of R⁴. The scene contains convex 4-polytopes, a glome, a w-thickened Earth, a Klein bottle, a 3D Klein bottle, a 4D Möbius strip and a 3×3×3×3 Rubik's cube. Each can be shown three ways: **Slice** (intersection with your hyperplane), **Stack** (three parallel slices side by side), and **Shadow** (4D→3D perspective projection).
+An interactive 4D explorer, plus two more pages: 4D chess (`chess.html`) and a 4D spinning cat (`cat.html`); see the end of this file. The viewer is a 3D being in a hyperplane of R⁴. The scene contains convex 4-polytopes, a glome, a w-thickened Earth, a Klein bottle, a 3D Klein bottle, a 4D Möbius strip and a 3×3×3×3 Rubik's cube. Each can be shown three ways: **Slice** (intersection with your hyperplane), **Stack** (three parallel slices side by side), and **Shadow** (4D→3D perspective projection).
 
 Vanilla JS + three.js **r147**, bundled with Vite. There's no framework and no TypeScript yet.
 
 ## Commands
 
 - `npm run dev` starts the dev server with HMR.
-- `npm run build` writes a static build to `dist/`. `base: './'`, so it works from any path. `vite.config.js` lists both pages as inputs and puts three.js in one shared chunk.
+- `npm run build` writes a static build to `dist/`. `base: './'`, so it works from any path. `vite.config.js` lists all three pages as inputs and puts three.js in one shared chunk.
 - `npm run preview` serves `dist/` on :4173.
-- `npm test` runs the unit tests, then the Playwright smoke tests. `tests/smoke.spec.js` builds, serves, flips every view of the explorer, does a twist, and fails on any console or page error; `tests/chess.spec.js` plays a move on the chess page, waits for the computer's reply and flips its views. Screenshots go to `test-results/`. Run `npx playwright install chromium` once first. Where Playwright's bundled Chromium isn't available, set `PW_CHROMIUM_PATH` to another Chromium binary.
-- `npm run test:unit` runs only the unit tests in `tests/unit/` with Node's built-in runner (Node 21+ for the glob). They cover `math4d.js`, `shapes.js` and the chess rules and AI.
+- `npm test` runs the unit tests, then the Playwright smoke tests. `tests/smoke.spec.js` builds, serves, flips every view of the explorer, does a twist, and fails on any console or page error; `tests/chess.spec.js` plays a move on the chess page, waits for the computer's reply and flips its views; `tests/cat.spec.js` walks, steps ana and tilts on the cat page with YouTube blocked, and flips its views. Screenshots go to `test-results/`. Run `npx playwright install chromium` once first. Where Playwright's bundled Chromium isn't available, set `PW_CHROMIUM_PATH` to another Chromium binary.
+- `npm run test:unit` runs only the unit tests in `tests/unit/` with Node's built-in runner (Node 21+ for the glob). They cover `math4d.js`, `shapes.js`, `viewer.js`, the chess rules and AI, and the cat page's slice math.
 - `npm run landmask` regenerates `src/assets/land-mask.png` from Natural Earth 1:110m (world-atlas). Output is deterministic.
 - Pushes to `main` run `.github/workflows/pages.yml`: unit tests, build, deploy to GitHub Pages. The smoke test doesn't run in CI.
 
@@ -79,3 +79,14 @@ A separate page with its own scene. It shares `styles.css` and three.js with the
 - `main.js` handles display and input. `FRAMES[ana]` picks which board axes show as right/up/forward; w takes the place of the axis your slice hides. `tower(k)` places 3D board k: side by side in Stack, only yours in Slice, nested about the board's `middle` by the 4D perspective factor `EYE/(EYE − (k − 1.5))` in Shadow. `place(cell)` gives a cell's target. Tiles (two `InstancedMesh`es, driven by stand-in Object3Ds), pieces, stands and markers all ease toward targets each frame, so moves and view changes animate for free. Picking raycasts pieces and tiles; in Shadow it prefers a legal target, then a piece, so you can reach the inner boards. `window.chess4d.cellOnScreen(name)` exists for the smoke test.
 - The staggered levels and the gaps between boards are display only; the grid is regular. The copy says so where it matters.
 
+
+## 4D spinning cat (`cat.html`, `src/cat/`, `src/viewer.js`)
+
+A third page: the OIIA OIIA meme cat spinning in 4D in front of a 4D TV that plays the song from YouTube. You walk it as in the explorer.
+
+- `src/viewer.js` is the explorer's viewer model as a module: the frame `S` with U locked to world y, `act`/`rotatePlane`/`orthonormalize`, the volume-view display frame `frame()`, a position `jumpTo`, and `bindControls` for the same keys and on-screen `.key[data-act]` buttons. Only the cat page uses it so far; moving the explorer onto it fits the refactor plan.
+- The cat and the TV are **thick objects**: a 3D shape times [−h, h] along its own w, placed by a 4D center and an orientation matrix (`FACE` turns their front toward where you start). `slice4d.js` is pure and tested: `inView(V, C, M)` gives `G = Q·M` (rows R, U, −F, A of your display frame) and the center in your coordinates; `thickSlice(G, h, off)` turns the cut at `off` into a 3×3 map L plus a shift and a slab of two clip planes. det L = 1/b, so the cut is mirrored when b < 0; edge-on (b ≈ 0, e.g. in volume view) b is clamped small, which draws the cross-section times the thickness. `main.js` draws each body as three panels (Stack; Slice uses the middle one), each piece through `_m` with `clippingPlanes` and a BackSide copy in a flat cut color for the cut faces, swapping to a reversed-winding copy when mirrored.
+- Shadow: the cat's middle layer is projected per vertex from an eye `EYE_CAT` ana of its center; the TV's 4D box, its screen (a rectangle times the thickness), legs and rods are tubes from an eye `EYE_TV` ana of its center, shaded dim (kata) to bright (ana) as in the explorer.
+- `model.js` builds the standing tabby from primitives with attributes `part`, `anchor`, `catPos` and `shade`. `fur.js` is a `MeshStandardMaterial` patched with `onBeforeCompile` that paints the tabby pattern from `catPos`, so it stays on the cat through slices and the shadow. Its tail curls to its right and its left front paw has a white sock, so a mirror image shows.
+- `tv.js` gives the TV's pieces (panel, glass, chrome), its 4D wire for Shadow, the antenna tesseract's center and the screen's place and pixel size.
+- **The picture** is the YouTube IFrame player inside a `CSS3DObject` whose matrix comes from `screenSlice` (the thick screen's cut: affine, plus `poly`, the pixels inside the slab, applied as `clip-path`) or `screenShadow` (projective; CSS `matrix3d` draws the 4×4 as is). The CSS layer sits above the WebGL canvas, so no 3D object is drawn over the player; it hides when its back faces the camera, when nothing of it is in the slab, or when it is nearly edge-on. The music keeps playing while the TV is out of your slice. `?v=<id>` plays another video. YouTube refuses playback from some networks (this repo's cloud containers get its bot check), so the smoke test blocks YouTube.
