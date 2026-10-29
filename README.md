@@ -2,6 +2,8 @@
 
 > Heavily inspired by [4D Golf](https://store.steampowered.com/app/2147950/4D_Golf/) by [CodeParade](https://github.com/HackerPoet), and is largely an experiment.
 
+**Try it:** [Hyperplane Explorer](https://erinxocon.github.io/hyperplane-explorer/) · [4D chess](https://erinxocon.github.io/hyperplane-explorer/chess.html) · [4D spinning cat](https://erinxocon.github.io/hyperplane-explorer/cat.html)
+
 Walk through a 4D world from inside a 3D slice. Move along x, y, z and ana/kata, tilt your slice into the fourth axis, and switch between three ways of seeing:
 
 - **Slice**: what a 3D being in your hyperplane sees.
