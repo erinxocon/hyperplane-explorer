@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>4D Chess</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+</head>
+<body>
+<div class="app">
+  <div class="view" id="view">
+    <div class="hud top"><span class="status" id="hud-status">White to move</span><span id="hud-hover"></span></div>
+    <div class="hud bottom">Click a piece, then a marked cell · drag to orbit · scroll or pinch to zoom</div>
+    <div class="tags" id="tower-tags"><span class="tag"></span><span class="tag"></span><span class="tag"></span><span class="tag"></span></div>
+  </div>
+
+  <aside class="panel">
+    <header>
+      <h1>4D Chess</h1>
+      <p class="lede">Chess on a 4×4×4×4 board: four 3D boards, one for each step along <em>w</em>, each made of four 4×4 levels, on stands styled after the tri-dimensional chess of Star Trek. Every piece moves as it does in chess, with more directions to move in.</p>
+    </header>
+
+    <section>
+      <h2>Game <span class="state" id="state">White to move</span></h2>
+      <div class="rk">
+        <div class="rk-row"><span class="rk-lbl">Opponent</span>
+          <div class="seg" id="opponent" role="group" aria-label="Opponent">
+            <button type="button" id="opp-computer" data-v="computer">Computer</button><button type="button" id="opp-two" data-v="two">Two players</button>
+          </div></div>
+        <div class="rk-actions">
+          <button class="ghost" type="button" id="new-game">New game</button>
+          <button class="ghost" type="button" id="undo">Undo</button>
+        </div>
+      </div>
+      <div class="captured" id="captured"></div>
+      <p class="note" id="opp-note"></p>
+    </section>
+
+    <section>
+      <h2>View <span>keys 1 · 2 · 3</span></h2>
+      <div class="seg view-seg" id="view-mode" role="group" aria-label="View">
+        <button type="button" id="vm-slice" data-v="slice">Slice</button><button type="button" id="vm-stack" data-v="stack">Stack</button><button type="button" id="vm-shadow" data-v="shadow">Shadow</button>
+      </div>
+      <p class="note" id="view-desc"></p>
+      <div class="rk-row stand-row"><span class="rk-lbl">Stand</span>
+        <div class="seg" id="stand" role="group" aria-label="Stand">
+          <button type="button" id="stand-trek" data-v="trek">Tri-d</button><button type="button" id="stand-plain" data-v="plain">Plain</button>
+        </div></div>
+      <p class="note">Tri-d sets each level back from the one below, like Star Trek’s tri-dimensional chess, so you can see into the lower levels. Plain stacks them straight up, further apart. Either way the spacing is only for display: the grid is regular.</p>
+    </section>
+
+    <section>
+      <h2>Your slice <span>keys Q · E</span></h2>
+      <div class="rk">
+        <div class="rk-row"><span class="rk-lbl">Ana axis</span>
+          <div class="seg" id="ana" role="group" aria-label="Ana axis">
+            <button type="button" id="ana-x" data-v="0">x</button><button type="button" id="ana-y" data-v="1">y</button><button type="button" id="ana-z" data-v="2">z</button><button type="button" id="ana-w" data-v="3">w</button>
+          </div></div>
+        <div class="rk-row"><span class="rk-lbl">Layer</span>
+          <div class="seg layer-seg" id="layers" role="group" aria-label="Layer of your slice">
+            <button type="button" data-v="0"></button><button type="button" data-v="1"></button><button type="button" data-v="2"></button><button type="button" data-v="3"></button>
+          </div></div>
+      </div>
+      <p class="note" id="slice-note"></p>
+    </section>
+
+    <section>
+      <h2>Pieces</h2>
+      <ul class="pieces">
+        <li><b>K</b><span><b>King</b>: one step in any direction, 80 of them in 4D.</span></li>
+        <li><b>Q</b><span><b>Queen</b>: any distance along any straight line, along one axis or diagonally across two, three or all four.</span></li>
+        <li><b>R</b><span><b>Rook</b>: along one axis. In 4D that makes it the weakest officer: it always reaches exactly 12 cells.</span></li>
+        <li><b>B</b><span><b>Bishop</b>: diagonally across two axes, so it keeps to its color.</span></li>
+        <li><b>U</b><span><b>Unicorn</b>, from 3D chess: diagonally across three axes, corner to corner through a cube.</span></li>
+        <li><b>N</b><span><b>Knight</b>: two cells along one axis and one along another, jumping.</span></li>
+        <li><b>P</b><span><b>Pawn</b>: one step forward, along z or along w. It captures one step forward plus one sideways, along x or y, and becomes a queen on the far corner, where z and w both reach the other side.</span></li>
+      </ul>
+      <p class="note">Forward is both z and w: white starts at z = w = 1 and black at z = w = 4, so the armies face each other diagonally. Only the queen and king use the four-axis diagonals. No castling, double steps or en passant. Checkmate wins; stalemate, bare kings, or 50 moves each without a capture or pawn move is a draw. Cells are named like b2 y1 w3: file b, rank 2, level 1, layer 3.</p>
+    </section>
+
+    <section>
+      <h2>Moves</h2>
+      <ol class="moves" id="moves"></ol>
+    </section>
+
+    <section class="opts">
+      <a class="ghost" href="./index.html">← Hyperplane Explorer</a>
+    </section>
+  </aside>
+</div>
+<script type="module" src="/src/chess/main.js"></script>
+</body>
+</html>

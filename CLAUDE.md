@@ -1,16 +1,16 @@
 # Hyperplane Explorer
 
-An interactive 4D explorer. The viewer is a 3D being in a hyperplane of R⁴. The scene contains convex 4-polytopes, a glome, a w-thickened Earth, a Klein bottle, a 3D Klein bottle, a 4D Möbius strip and a 3×3×3×3 Rubik's cube. Each can be shown three ways: **Slice** (intersection with your hyperplane), **Stack** (three parallel slices side by side), and **Shadow** (4D→3D perspective projection).
+An interactive 4D explorer, plus 4D chess on a second page (`chess.html`, see the end of this file). The viewer is a 3D being in a hyperplane of R⁴. The scene contains convex 4-polytopes, a glome, a w-thickened Earth, a Klein bottle, a 3D Klein bottle, a 4D Möbius strip and a 3×3×3×3 Rubik's cube. Each can be shown three ways: **Slice** (intersection with your hyperplane), **Stack** (three parallel slices side by side), and **Shadow** (4D→3D perspective projection).
 
 Vanilla JS + three.js **r147**, bundled with Vite. There's no framework and no TypeScript yet.
 
 ## Commands
 
 - `npm run dev` starts the dev server with HMR.
-- `npm run build` writes a static build to `dist/`. `base: './'`, so it works from any path.
+- `npm run build` writes a static build to `dist/`. `base: './'`, so it works from any path. `vite.config.js` lists both pages as inputs and puts three.js in one shared chunk.
 - `npm run preview` serves `dist/` on :4173.
-- `npm test` runs the unit tests, then the Playwright smoke test. The smoke test builds, serves, flips every view, does a twist, and fails on any console or page error. Screenshots go to `test-results/`. Run `npx playwright install chromium` once first. Where Playwright's bundled Chromium isn't available, set `PW_CHROMIUM_PATH` to another Chromium binary.
-- `npm run test:unit` runs only the unit tests in `tests/unit/` with Node's built-in runner (Node 21+ for the glob). They cover `math4d.js` and `shapes.js`.
+- `npm test` runs the unit tests, then the Playwright smoke tests. `tests/smoke.spec.js` builds, serves, flips every view of the explorer, does a twist, and fails on any console or page error; `tests/chess.spec.js` plays a move on the chess page, waits for the computer's reply and flips its views. Screenshots go to `test-results/`. Run `npx playwright install chromium` once first. Where Playwright's bundled Chromium isn't available, set `PW_CHROMIUM_PATH` to another Chromium binary.
+- `npm run test:unit` runs only the unit tests in `tests/unit/` with Node's built-in runner (Node 21+ for the glob). They cover `math4d.js`, `shapes.js` and the chess rules and AI.
 - `npm run landmask` regenerates `src/assets/land-mask.png` from Natural Earth 1:110m (world-atlas). Output is deterministic.
 - Pushes to `main` run `.github/workflows/pages.yml`: unit tests, build, deploy to GitHub Pages. The smoke test doesn't run in CI.
 
@@ -68,3 +68,14 @@ Vanilla JS + three.js **r147**, bundled with Vite. There's no framework and no T
    - r155 removed legacy lights, so light intensities need roughly ×π.
    - Check `InstancedMesh.setColorAt` and `ConvexGeometry` behavior.
 5. Possible features: unlock U for full SO(4) slicing, 4D hidden-cell removal in Shadow, a move log/undo for the cube, a stereographic projection mode for the glome.
+
+## 4D chess (`chess.html`, `src/chess/`)
+
+A separate page with its own scene. It shares `styles.css` and three.js with the explorer, and nothing else.
+
+- `rules.js` is pure and runs in Node. The board is an `Int8Array(256)` indexed `x + 4y + 16z + 64w`. A piece is ±type (`PAWN`…`KING`), positive for white. x is the file and y the level; z (rank) and w (layer) are both forward, from z = w = 0 (white) to 3 (black). Sliders move along the 80 directions in {−1,0,1}⁴ by order (how many axes change): rook 1, bishop 2, unicorn 3, queen any. The king takes one step and the knight jumps (2, 1). Pawns step +z or +w and capture forward plus ±x or ±y. They promote to a queen on z = w = 3 (black: 0). Precomputed rays per cell keep `attacked` and `pseudoMoves` fast. `gameState` gives play / check / checkmate / stalemate / draw (bare kings, or `quiet` ≥ 100 plies).
+- `ai.js` is negamax with alpha-beta, depth 2, then a capture-only quiescence search. It uses pseudo-legal moves inside the tree, with a king capture counting as a win; only the root moves are fully legal. Piece values follow empty-board mobility: the rook (always 12 cells) is the weakest officer. `worker.js` runs it off the main thread. Replies carry a `token`, so a stale reply after undo or new game is dropped.
+- `models.js` builds the piece geometry from lathes and extrusions. `buildStand` is the tri-d stand: a chrome column with arms to four glass plates, each `level` up and `stagger` back, merged into two meshes. `buildFrame` is the plain alternative, a wire outline with the levels stacked straight up. The View panel's Stand toggle switches `S.stand` between `STYLES.trek` and `STYLES.plain`, which differ only in `level` and `stagger`. The choice is kept in localStorage (`chess4d-stand`).
+- `main.js` handles display and input. `FRAMES[ana]` picks which board axes show as right/up/forward; w takes the place of the axis your slice hides. `tower(k)` places 3D board k: side by side in Stack, only yours in Slice, nested about the board's `middle` by the 4D perspective factor `EYE/(EYE − (k − 1.5))` in Shadow. `place(cell)` gives a cell's target. Tiles (two `InstancedMesh`es, driven by stand-in Object3Ds), pieces, stands and markers all ease toward targets each frame, so moves and view changes animate for free. Picking raycasts pieces and tiles; in Shadow it prefers a legal target, then a piece, so you can reach the inner boards. `window.chess4d.cellOnScreen(name)` exists for the smoke test.
+- The staggered levels and the gaps between boards are display only; the grid is regular. The copy says so where it matters.
+

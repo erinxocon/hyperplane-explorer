@@ -1,0 +1,32 @@
+/* 4D chess: additions to styles.css. Every color is a token on :root, as there. */
+:root {
+  --tile-light: #8e9aad;
+  --tile-dark: #1a212c;
+  --chrome: #d3dae4;
+  --glass: #7fa9ff;
+  --white-piece: #f3e9d2;
+  --black-piece: #333a49;
+  --move: #6fe0a0;
+  --capture: #ff6b6b;
+  --last: #f0c674;
+  --check: #ff4f4f;
+}
+.hud.top { gap: 12px; }
+.stand-row { margin-top: 14px; }
+.hud.top .status { color: var(--ink); }
+.hud.top .status.check { color: var(--check); }
+.layer-seg button { position: relative; min-width: 50px; }
+.layer-seg button.here::after { content: ""; position: absolute; left: 50%; bottom: 3px; width: 4px; height: 4px; margin-left: -2px; border-radius: 50%; background: var(--last); }
+.badge { position: absolute; top: 2px; right: 3px; min-width: 14px; padding: 0 4px; border-radius: 7px; font: 600 9.5px/14px var(--mono); color: var(--ground); background: var(--move); }
+.badge:empty { display: none; }
+.pieces { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.pieces li { display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: 8px; font-size: 12.5px; line-height: 1.45; }
+.pieces b { font: 600 12px/1.45 var(--mono); color: var(--accent); }
+.moves { margin: 0; padding: 0 0 0 28px; max-height: 210px; overflow-y: auto; display: grid; gap: 3px; font: 11.5px var(--mono); color: var(--muted); }
+.moves li::marker { color: var(--muted); }
+.moves li.w { color: var(--ink); }
+.moves:empty::before { content: "No moves yet."; margin-left: -28px; font-family: var(--body); font-size: 12px; }
+.captured { font: 12px var(--mono); color: var(--muted); margin: 10px 0 0; display: grid; gap: 2px; }
+#tower-tags .tag { color: var(--muted); }
+#tower-tags .tag.here { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 50%, var(--line)); }
+.panel button:disabled { opacity: .45; cursor: default; }
