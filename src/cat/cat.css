@@ -1,15 +1,15 @@
 /* 4D spinning cat: additions to styles.css. Every color is a token on :root, as there. */
 :root {
-  /* the meme cat: a brown mackerel tabby (fur.js) */
-  --fur-dark: #221e1a;
-  --fur-base: #4c4339;
-  --fur-light: #6f6052;
-  --fur-cream: #bcb09f;
-  --fur-white: #ddd6cb;
-  --fur-iris: #a9ad5a;
-  --fur-pupil: #141210;
-  --fur-nose: #b37b72;
-  --fur-ear: #c5978c;
+  /* the meme cat, Ethel: a cool grey-brown mackerel tabby (fur.js) */
+  --fur-dark: #221f1c;
+  --fur-base: #4b453f;
+  --fur-light: #6b635a;
+  --fur-cream: #b5ada1;
+  --fur-white: #d9d5cd;
+  --fur-iris: #cdc98e;
+  --fur-pupil: #11100f;
+  --fur-nose: #c48a7e;
+  --fur-ear: #7d605a;
   --cut: #e9b98a;      /* the flat faces where your slice cuts through the cat */
   --tv: #151a23;
   --glass: #06080b;
