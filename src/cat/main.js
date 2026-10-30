@@ -10,9 +10,11 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { CSS3DRenderer, CSS3DObject } from 'three/examples/jsm/renderers/CSS3DRenderer.js';
 import { ConvexGeometry } from 'three/examples/jsm/geometries/ConvexGeometry.js';
-import { add, mul, dot, rot, mm, mv } from '../math4d.js';
+import { add, mul, dot, ease, rot, mm, mv } from '../math4d.js';
 import { tesseract } from '../shapes.js';
 import { createViewer, bindControls } from '../viewer.js';
+import { tok, createFloor, createMarker, depthShade, depthTint, tubeMatrix, knobMatrix } from '../scenery.js';
+import { createReadout, createCompass, drawRulerRow, stackLabels, stackOffs, placeStackTags } from '../hud.js';
 import { buildCat, HEIGHT } from './model.js';
 import { furMaterial } from './fur.js';
 import { inView, thickSlice, screenSlice, screenShadow } from './slice4d.js';
@@ -48,7 +50,6 @@ const VOL_DESC = ' <b>Volume view is on:</b> your slice lies level, so here ana 
 
 function main() {
   const view = document.getElementById('view'), $ = id => document.getElementById(id);
-  const css = getComputedStyle(document.documentElement), tok = n => css.getPropertyValue(n).trim();
   const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
   const ST = { spin: 'both', mode: 'slice', speed: 1 };
   const you = createViewer(), keys = bindControls(you);
@@ -64,7 +65,9 @@ function main() {
   const BG = new THREE.Color(tok('--ground')), scene = new THREE.Scene();
   scene.background = BG;
   scene.fog = new THREE.Fog(BG, 18, 46);
-  scene.environment = new THREE.PMREMGenerator(renderer).fromScene(new RoomEnvironment(), 0.04).texture;
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+  pmrem.dispose();
   scene.add(new THREE.HemisphereLight(0xdfe7ff, 0x1a2230, 0.4));
   const sun = new THREE.DirectionalLight(0xffffff, 0.7);
   sun.position.set(4, 9, 6);
@@ -79,36 +82,9 @@ function main() {
   let camTween = null;
   controls.addEventListener('start', () => { camTween = null; });
 
-  // Floor: the 4D hyperplane y = FLOOR_Y, cut by your slice, checkered on world (x, z, w), as in the explorer.
-  const floorMat = new THREE.ShaderMaterial({
-    uniforms: {
-      uP: { value: new THREE.Vector4() }, uR: { value: new THREE.Vector4() }, uU: { value: new THREE.Vector4() }, uF: { value: new THREE.Vector4() },
-      cA: { value: new THREE.Color('#1a2331') }, cB: { value: new THREE.Color('#222d3e') }, cW: { value: new THREE.Color('#3a3358') }, cBg: { value: BG },
-    },
-    vertexShader: 'varying vec3 vPos; void main(){ vec4 wp = modelMatrix * vec4(position,1.0); vPos = wp.xyz; gl_Position = projectionMatrix * viewMatrix * wp; }',
-    fragmentShader: `
-      uniform vec4 uP, uR, uU, uF; uniform vec3 cA, cB, cW, cBg; varying vec3 vPos;
-      void main(){
-        vec4 X = uP + vPos.x * uR + vPos.y * uU + (-vPos.z) * uF;
-        vec3 q = floor(vec3(X.x, X.z, X.w));
-        vec3 col = mix(cA, cB, mod(q.x + q.y + q.z, 2.0));
-        float grad = length(vec2(uR.w, uF.w));      // tilted into w: mark where the floor crosses integer w
-        float wl = abs(fract(X.w + 0.5) - 0.5) / max(grad, 1e-3);
-        col = mix(col, cW, smoothstep(0.07, 0.0, wl) * smoothstep(0.02, 0.12, grad) * 0.9);
-        float fade = 1.0 - smoothstep(10.0, 32.0, length(vPos.xz - vec2(0.0, -6.0)));
-        gl_FragColor = vec4(mix(cBg, col, fade), 1.0);
-      }`,
-  });
-  const floor = new THREE.Mesh(new THREE.PlaneGeometry(90, 90), floorMat);
-  floor.rotation.x = -Math.PI / 2;
-  scene.add(floor);
-  // you, at the origin of the scene, with your R / U / F axes
-  const me = new THREE.Group();
-  me.add(new THREE.Mesh(new THREE.SphereGeometry(0.13, 24, 16), new THREE.MeshStandardMaterial({ color: 0xc4a7ff, emissive: 0x3a2a66, roughness: 0.4 })));
-  me.add(new THREE.ArrowHelper(new THREE.Vector3(1, 0, 0), new THREE.Vector3(), 0.9, 0xe0857a, 0.18, 0.1));
-  me.add(new THREE.ArrowHelper(new THREE.Vector3(0, 1, 0), new THREE.Vector3(), 0.9, 0x9bd59b, 0.18, 0.1));
-  me.add(new THREE.ArrowHelper(new THREE.Vector3(0, 0, -1), new THREE.Vector3(), 1.2, 0x8fb5ff, 0.2, 0.11));
-  scene.add(me);
+  // the floor, the 4D hyperplane y = FLOOR_Y cut by your slice, checkered on world (x, z, w) as in the explorer; and you
+  const floor = createFloor(BG, [10, 32, -6]);
+  scene.add(floor.mesh, createMarker());
 
   /* ---------- thick bodies: Slice and Stack ---------- */
   // A 3D shape thickened along w, drawn as three panels (Stack uses all three, Slice the middle one). A panel shows
@@ -160,8 +136,6 @@ function main() {
   const antCuts = [0, 1, 2].map(() => { const m = new THREE.Mesh(new THREE.BufferGeometry(), antMat); scene.add(m); return m; });
 
   /* ---------- Shadow ---------- */
-  const KATA = new THREE.Color(tok('--kata')), ANA = new THREE.Color(tok('--ana'));
-  const clamp01 = t => Math.min(1, Math.max(0, t));
   // The cat's middle layer, every vertex turned and projected from an eye EYE_CAT ana of its center, tinted by depth.
   const shadowGeo = cat.clone(), sPos = shadowGeo.getAttribute('position'), sShade = shadowGeo.getAttribute('shade');
   const catShadow = new THREE.Mesh(shadowGeo, furMaterial(fur, { side: THREE.DoubleSide }));
@@ -175,7 +149,7 @@ function main() {
       P[i] = at[0] + (G[0] * x + G[1] * y + G[2] * z) * k;
       P[i + 1] = at[1] + (G[4] * x + G[5] * y + G[6] * z) * k;
       P[i + 2] = at[2] + (G[8] * x + G[9] * y + G[10] * z) * k;
-      const t = clamp01((w / (HEIGHT / 2) + 1) / 2), lum = 0.55 + 0.6 * t, tint = t < 0.5 ? KATA : ANA, m = 0.3 * Math.abs(2 * t - 1);
+      const t = THREE.MathUtils.clamp((w / (HEIGHT / 2) + 1) / 2, 0, 1), lum = 0.55 + 0.6 * t, { color: tint, amount: m } = depthTint(t);
       Sh[j] = tint.r * m * lum; Sh[j + 1] = tint.g * m * lum; Sh[j + 2] = tint.b * m * lum; Sh[j + 3] = (1 - m) * lum;
     }
     sPos.needsUpdate = sShade.needsUpdate = true;
@@ -187,33 +161,18 @@ function main() {
   const instanced = (geo, n) => { const m = new THREE.InstancedMesh(geo, wireMat, n); m.frustumCulled = false; scene.add(m); return m; };
   const tvTubes = instanced(TUBE, tv.wire.edges.length + T4.edges.length), tvKnobs = instanced(KNOB, tv.wire.knobs + T4.verts.length);
   const CHROME = new THREE.Color(tok('--chrome')), DIM = CHROME.clone().lerp(BG, 0.72), BRIGHT = CHROME.clone().lerp(new THREE.Color(0xffffff), 0.3);
-  const _c = new THREE.Color(), _o = new THREE.Object3D(), _a = new THREE.Vector3(), _b = new THREE.Vector3(), UP = new THREE.Vector3(0, 1, 0);
-  const luma = c => 0.299 * c.r + 0.587 * c.g + 0.114 * c.b;
-  const shadeAt = t => {   // brightness runs dim → bright; the far end leans cool and the near end warm, at the same luma
-    t = clamp01(t);
-    _c.copy(DIM).lerp(BRIGHT, t);
-    const l0 = luma(_c);
-    _c.lerp(t < 0.5 ? KATA : ANA, 0.3 * Math.abs(2 * t - 1));
-    return _c.multiplyScalar(l0 / Math.max(1e-6, luma(_c)));
-  };
-  const tube = (a, b, r) => {
-    _o.position.copy(a).add(b).multiplyScalar(0.5);
-    _o.quaternion.setFromUnitVectors(UP, _b.subVectors(b, a).normalize());
-    _o.scale.set(r, Math.max(a.distanceTo(b), 1e-4), r);
-    _o.updateMatrix();
-    return _o.matrix;
-  };
+  const _c = new THREE.Color(), _a = new THREE.Vector3(), _b = new THREE.Vector3();
+  const shadeAt = t => depthShade(_c, DIM, BRIGHT, t);   // dim (kata) → bright (ana), as in the explorer
   function drawTVShadow(G, at, ant) {
     const RAD = Math.hypot(...TV.half);
     const project = v => { const r = mv(G, v), k = EYE_TV / Math.max(0.25 * EYE_TV, EYE_TV - r[3]); return { p: new THREE.Vector3(at[0] + r[0] * k, at[1] + r[1] * k, at[2] + r[2] * k), a: r[3], k }; };
     const PV = tv.wire.verts.map(project), PA = ant.map(project);
     let n = 0;
-    for (const [i, j, r] of tv.wire.edges) { tvTubes.setMatrixAt(n, tube(PV[i].p, PV[j].p, r * (PV[i].k + PV[j].k) / 2)); tvTubes.setColorAt(n++, shadeAt(((PV[i].a + PV[j].a) / 2 / RAD + 1) / 2)); }
-    for (const [i, j] of T4.edges) { tvTubes.setMatrixAt(n, tube(PA[i].p, PA[j].p, 0.016 * (PA[i].k + PA[j].k) / 2)); tvTubes.setColorAt(n++, shadeAt(((PA[i].a + PA[j].a) / 2 / RAD + 1) / 2)); }
+    for (const [i, j, r] of tv.wire.edges) { tvTubes.setMatrixAt(n, tubeMatrix(PV[i].p, PV[j].p, r * (PV[i].k + PV[j].k) / 2)); tvTubes.setColorAt(n++, shadeAt(((PV[i].a + PV[j].a) / 2 / RAD + 1) / 2)); }
+    for (const [i, j] of T4.edges) { tvTubes.setMatrixAt(n, tubeMatrix(PA[i].p, PA[j].p, 0.016 * (PA[i].k + PA[j].k) / 2)); tvTubes.setColorAt(n++, shadeAt(((PA[i].a + PA[j].a) / 2 / RAD + 1) / 2)); }
     n = 0;
     for (const v of [...PV.slice(0, tv.wire.knobs), ...PA]) {
-      _o.position.copy(v.p); _o.quaternion.identity(); _o.scale.setScalar((n < tv.wire.knobs ? 0.075 : 0.03) * v.k); _o.updateMatrix();
-      tvKnobs.setMatrixAt(n, _o.matrix); tvKnobs.setColorAt(n++, shadeAt((v.a / RAD + 1) / 2));
+      tvKnobs.setMatrixAt(n, knobMatrix(v.p, (n < tv.wire.knobs ? 0.075 : 0.03) * v.k)); tvKnobs.setColorAt(n++, shadeAt((v.a / RAD + 1) / 2));
     }
     for (const im of [tvTubes, tvKnobs]) { im.instanceMatrix.needsUpdate = true; im.instanceColor.needsUpdate = true; }
   }
@@ -270,7 +229,7 @@ function main() {
     const tvv = inView(V, TV_AT, FACE), TG = tvv.G, tat = tvv.at;
     const S4 = mm(rot(0, 3, antT), rot(1, 2, antT * 0.7));
     const antLocal = T4.verts.map(v => add(tv.antenna, mul(mv(S4, v), ANT)));
-    const tvAna = [...tv.wire.verts, ...antLocal].map(v => tat[3] + dot(TG.slice(12, 16), v));
+    const tvA = TG.slice(12, 16), tvAna = [...tv.wire.verts, ...antLocal].map(v => tat[3] + dot(tvA, v));
     OBJ[1].range = [Math.min(...tvAna), Math.max(...tvAna)];
 
     catShadow.visible = tvTubes.visible = tvKnobs.visible = mode === 'shadow';
@@ -282,30 +241,20 @@ function main() {
       placeScreen(screenShadow(TG, tat, EYE_TV, scr), null);
     } else {
       // Slice cuts at your own slice; Stack at the middle of each object's extent along ana and a quarter of it either side
-      const cuts = (o, spacing) => mode === 'slice' ? [null, { off: 0, x: 0 }, null] : [-1, 0, 1].map(k => {
-        const [a, b] = o.range;
-        return { off: (a + b) / 2 + k * (b - a) / 4, x: k * spacing };
-      });
-      const cc = cuts(OBJ[0], 2 * catReach + 0.6), tc = cuts(OBJ[1], 2 * TV.half[0] + 1);
-      OBJ[0].stackInfo = { spacing: 2 * catReach + 0.6, bottom: -(HEIGHT / 2 + 0.35) };
-      OBJ[1].stackInfo = { spacing: 2 * TV.half[0] + 1, bottom: FLOOR_Y - TV_AT[1] - 0.35 };
+      const cuts = (o, spacing) => mode === 'slice' ? [null, { off: 0, x: 0 }, null] : stackOffs(o.range).map((off, i) => ({ off, x: (i - 1) * spacing }));
+      const labels = stackLabels(you.vol.on);
+      OBJ[0].stackInfo = { spacing: 2 * catReach + 0.6, bottom: -(HEIGHT / 2 + 0.35), labels };
+      OBJ[1].stackInfo = { spacing: 2 * TV.half[0] + 1, bottom: FLOOR_Y - TV_AT[1] - 0.35, labels };
+      const cc = cuts(OBJ[0], OBJ[0].stackInfo.spacing), tc = cuts(OBJ[1], OBJ[1].stackInfo.spacing);
       catPanels.forEach((p, i) => drawPanel(p, cc[i] && thickSlice(G, CAT_W, cc[i].off - at[3]), at[0] + (cc[i]?.x || 0), at[1], at[2]));
       tvPanels.forEach((p, i) => drawPanel(p, tc[i] && thickSlice(TG, TV.half[3], tc[i].off - tat[3]), tat[0] + (tc[i]?.x || 0), tat[1], tat[2]));
       const antView = antLocal.map(v => add(tat, mv(TG, v)));
       antCuts.forEach((m, i) => drawAntenna(m, antView, tc[i]));
-      const mid = tc[1], s = screenSlice(TG, tat, TV.half[3], mid.off, scr);
-      if (mid.x) s.m[3] += mid.x;
+      const s = screenSlice(TG, tat, TV.half[3], tc[1].off, scr);   // the middle cut is never shifted sideways
       placeScreen(Math.abs(s.b) < 0.12 ? null : s.m, s.poly);   // nearly edge-on: too stretched to show
     }
-    const V0 = you.S;
-    const cu = V.U[1];   // the floor stays the plane world y = FLOOR_Y; as volume view levels the slice it drops away and hides
-    floor.visible = cu > 0.05;
-    floor.position.y = (FLOOR_Y - V.P[1]) / Math.max(cu, 0.05);
-    floorMat.uniforms.uP.value.set(...V.P);
-    floorMat.uniforms.uR.value.set(...V.R);
-    floorMat.uniforms.uU.value.set(...V.U);
-    floorMat.uniforms.uF.value.set(...V.F);
-    updatePanel(V, V0);
+    floor.update(V, FLOOR_Y);
+    updatePanel(V);
   }
   // the antenna tesseract cut at cut.off (ana of you), shifted cut.x sideways: the hull of where its edges cross
   function drawAntenna(m, W, cut) {
@@ -323,7 +272,7 @@ function main() {
   }
 
   /* ---------- panel ---------- */
-  const ruler = $('ruler'), RANGE = 6;
+  const ruler = $('ruler');
   OBJ.forEach(o => {
     const wrap = document.createElement('div'), b = document.createElement('button');
     wrap.className = 'shape-row';
@@ -331,36 +280,21 @@ function main() {
     b.className = 'row-btn'; b.type = 'button';
     b.innerHTML = `<span class="nm"><span class="dot" style="background:${o.color}"></span>${o.name}</span><span class="track"><span class="bar" style="background:${o.color}"></span></span>`;
     b.addEventListener('click', () => {   // center your slice on it
-      const [lo, hi] = o.range, to = add(you.S.P, mul(you.frame().A, (lo + hi) / 2));
-      if (reduceMotion) { you.S.P = to; } else you.jumpTo(to);
+      const [lo, hi] = o.range;
+      you.jumpTo(add(you.S.P, mul(you.frame().A, (lo + hi) / 2)));
+      if (reduceMotion) you.step(0, true);   // land at once
     });
     o.row = b; o.bar = b.querySelector('.bar');
     wrap.append(b);
     ruler.append(wrap);
   });
-  const mtx = $('mtx'), ROWS = [['R', 'right'], ['U', 'up'], ['F', 'forward'], ['A', 'ana']];
-  mtx.innerHTML = '<tr><th></th><th>x</th><th>y</th><th>z</th><th>w</th></tr>' +
-    ROWS.map(([k, n]) => `<tr class="${k.toLowerCase()}"><th class="r"><i>${k}</i> ${n}</th>${'<td></td>'.repeat(4)}</tr>`).join('');
-  const cells = [...mtx.querySelectorAll('tr')].slice(1).map(tr => [...tr.querySelectorAll('td')]);
-  const hud = ['px', 'py', 'pz', 'pw'].map($);
-  const fmt = v => { const s = (Math.abs(v) < 0.005 ? 0 : v).toFixed(2); return s.startsWith('-') ? '−' + s.slice(1) : s; };
-  function updatePanel(V, S) {
-    S.P.forEach((v, i) => { hud[i].textContent = fmt(v); });
-    ROWS.forEach(([k], r) => V[k].forEach((v, c) => {
-      const td = cells[r][c];
-      td.textContent = fmt(v);
-      td.style.background = `color-mix(in srgb, ${k === 'A' ? 'var(--accent)' : 'var(--ink)'} ${Math.round(Math.abs(v) * (k === 'A' ? 34 : 24))}%, transparent)`;
-    }));
-    for (const o of OBJ) {
-      const [lo, hi] = o.range, L = Math.max(-RANGE, lo), H = Math.min(RANGE, hi), inSlice = lo < 0 && hi > 0;
-      o.bar.hidden = !(H > L);
-      if (H > L) { o.bar.style.left = ((L + RANGE) / (2 * RANGE) * 100) + '%'; o.bar.style.width = Math.max(0.8, (H - L) / (2 * RANGE) * 100) + '%'; }
-      o.row.classList.toggle('in', inSlice);
-      o.row.title = (inSlice ? 'Crosses your slice' : `Lies ${lo >= 0 ? (you.vol.on ? 'below' : 'ana of') : (you.vol.on ? 'above' : 'kata of')} you`) + ' · tap to center your slice on it';
-    }
+  const readout = createReadout(), hudTurn = $('hud-turn'), hudMirror = $('hud-mirror');
+  function updatePanel(V) {
+    readout(V, you.S.P);
+    for (const o of OBJ) drawRulerRow(o.row, o.bar, o.range, you.vol.on, 'Crosses your slice');
     const deg = Math.round(THREE.MathUtils.radToDeg(angle)) % 360;
-    $('hud-turn').textContent = SPINS[ST.spin].label(deg, Math.round(THREE.MathUtils.radToDeg(angle)));
-    $('hud-mirror').hidden = !mirrored;
+    hudTurn.textContent = SPINS[ST.spin].label(deg, Math.round(THREE.MathUtils.radToDeg(angle)));
+    hudMirror.hidden = !mirrored;
   }
 
   /* ---------- music ---------- */
@@ -411,8 +345,7 @@ function main() {
   function setSpin(s) { ST.spin = s; press('spin', s); $('spin-desc').innerHTML = SPIN_DESC[s]; }
   const volBox = $('volume');
   function setVolume(on) {
-    you.vol.on = on;
-    if (reduceMotion) you.vol.t = on ? 1 : 0;
+    you.vol.on = on;   // you.step tweens it, or makes it instant with reduced motion
     volBox.checked = on;
     $('ax-lo').textContent = on ? '6 above' : 'kata −6';
     $('ax-hi').textContent = on ? '6 below' : '+6 ana';
@@ -433,37 +366,7 @@ function main() {
 
   /* ---------- compass ---------- */
   // The four world axes as seen from your orbit camera, each projected into your slice, as in the explorer.
-  const compass = $('compass'), cctx = compass.getContext('2d');
-  const INK = tok('--ink'), C_FONT = '11px ' + tok('--mono'), C_DOT = tok('--muted');
-  const AXES = [['x', 0, INK], ['y', 1, INK], ['z', 2, INK], ['w', 3, tok('--accent')]];
-  const _cv = new THREE.Vector3(), _cm = new THREE.Matrix4();
-  function drawCompass(V) {
-    const dpr = Math.min(2, window.devicePixelRatio || 1), size = Math.round(compass.clientWidth * dpr);
-    if (compass.width !== size) compass.width = compass.height = size;
-    cctx.setTransform(1, 0, 0, 1, 0, 0); cctx.clearRect(0, 0, size, size);
-    cctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    const mid = compass.clientWidth / 2, len = mid * 0.62;
-    _cm.extractRotation(camera.matrixWorldInverse);
-    cctx.font = C_FONT; cctx.textAlign = 'center'; cctx.textBaseline = 'middle'; cctx.lineCap = 'round';
-    cctx.fillStyle = C_DOT; cctx.globalAlpha = 0.5; cctx.beginPath(); cctx.arc(mid, mid, 2, 0, 7); cctx.fill();
-    const arrows = AXES.map(([name, i, col]) => {
-      const e = [0, 0, 0, 0]; e[i] = 1;
-      const out = Math.abs(dot(e, V.A));
-      _cv.set(dot(e, V.R), dot(e, V.U), -dot(e, V.F)).applyMatrix4(_cm);
-      return { name, col, out, x: _cv.x, y: -_cv.y, z: _cv.z };
-    }).sort((a, b) => a.z - b.z);
-    const stubs = arrows.filter(a => Math.hypot(a.x, a.y) < 0.35).reverse();
-    for (const a of arrows) {
-      const ex = mid + a.x * len, ey = mid + a.y * len;
-      cctx.strokeStyle = cctx.fillStyle = a.col; cctx.globalAlpha = 0.35 + 0.65 * (1 - a.out);
-      cctx.lineWidth = 1.6; cctx.setLineDash(a.out > Math.SQRT1_2 ? [3, 3] : []);
-      cctx.beginPath(); cctx.moveTo(mid, mid); cctx.lineTo(ex, ey); cctx.stroke(); cctx.setLineDash([]);
-      const d = Math.hypot(a.x, a.y), k = stubs.indexOf(a);
-      if (k >= 0) { cctx.globalAlpha = 0.85; cctx.fillText(a.name + (a.out > Math.SQRT1_2 ? '⊥' : '·'), mid + (k - (stubs.length - 1) / 2) * 22, mid + 24); }
-      else cctx.fillText(a.name, ex + (a.x / d) * 9, ey + (a.y / d) * 9);
-    }
-    cctx.globalAlpha = 1;
-  }
+  const drawCompass = createCompass($('compass'));
 
   /* ---------- camera and loop ---------- */
   function resize() {
@@ -477,8 +380,7 @@ function main() {
   resize();
   setSpin(ST.spin);
   setMode(ST.mode);
-  const stackTags = $('stack-tags'), LABELS = () => you.vol.on ? ['above', 'middle', 'below'] : ['kata side', 'middle', 'ana side'];
-  const ease = t => (t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2);
+  const stackTags = $('stack-tags');
   let last = performance.now();
   function frame(now) {
     const dt = Math.min(0.05, (now - last) / 1000);
@@ -507,17 +409,8 @@ function main() {
       const c = inView(V, C, FACE).at, p = new THREE.Vector3(c[0], c[1], c[2]), d = p.distanceTo(controls.target);
       if (d < best) { best = d; tagged = { o, p }; }
     }
-    stackTags.hidden = !tagged;
-    if (tagged) {
-      const w = view.clientWidth, h = view.clientHeight, si = tagged.o.stackInfo, labels = LABELS();
-      [...stackTags.children].forEach((el, k) => {
-        const v = new THREE.Vector3(tagged.p.x + (k - 1) * si.spacing, tagged.p.y + si.bottom, tagged.p.z).project(camera);
-        el.textContent = labels[k];
-        el.hidden = v.z > 1;
-        el.style.transform = `translate(${((v.x + 1) / 2 * w).toFixed(1)}px, ${((1 - v.y) / 2 * h).toFixed(1)}px) translate(-50%, 0)`;
-      });
-    }
-    drawCompass(V);
+    placeStackTags(stackTags, view, camera, tagged?.p, tagged?.o.stackInfo);
+    drawCompass(V, camera);
     renderer.render(scene, camera);
     cssRenderer.render(cssScene, camera);
     requestAnimationFrame(frame);

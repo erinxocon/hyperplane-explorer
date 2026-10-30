@@ -43,17 +43,7 @@ void main() {
   if (!inside && E.x >= S.x) {
     // outer surface: land/ocean by direction from the center in world xyz
     n = normalize(vec3(dot(uCx.xyz, X.xyz), dot(uCy.xyz, X.xyz), dot(uCz.xyz, X.xyz)));
-    vec3 v = normalize(X.xyz);
-    float ct = cos(0.41), st = sin(0.41);
-    v = vec3(ct * v.x - st * v.y, st * v.x + ct * v.y, v.z);       // axial tilt
-    float lat = asin(clamp(v.y, -1.0, 1.0));
-    float lon = atan(v.x, -v.z) - uSpin;
-    float land = smoothstep(0.35, 0.65, texture2D(uLand, vec2(fract(lon / 6.2831853 + 0.5), lat / 3.1415927 + 0.5)).r);
-    float al = abs(lat);
-    vec3 ground = mix(vec3(0.33, 0.47, 0.25), vec3(0.62, 0.55, 0.36), smoothstep(0.25, 0.45, al) * (1.0 - smoothstep(0.55, 0.75, al)));
-    vec3 sea = mix(vec3(0.07, 0.24, 0.44), vec3(0.11, 0.33, 0.55), smoothstep(0.0, 1.0, 1.0 - al));
-    col = mix(sea, ground, land);
-    col = mix(col, vec3(0.90, 0.93, 0.96), smoothstep(1.17, 1.27, al));
+    col = earthSurface(uLand, normalize(X.xyz), uSpin);
     float diff = max(dot(n, uLight), 0.0);
     col *= 0.32 + 0.85 * diff;
     float rim = pow(1.0 - max(dot(n, -rd), 0.0), 3.0);

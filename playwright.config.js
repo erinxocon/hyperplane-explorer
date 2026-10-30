@@ -6,7 +6,6 @@ export default defineConfig({
   timeout: 60_000,
   use: {
     baseURL: 'http://localhost:4173',
-    viewport: { width: 1400, height: 860 },
     // Software GL so the suite also runs on headless CI boxes without a GPU.
     // PW_CHROMIUM_PATH points at a specific Chromium build, for machines where Playwright's bundled one isn't available.
     launchOptions: { args: ['--use-gl=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'], executablePath: process.env.PW_CHROMIUM_PATH || undefined },

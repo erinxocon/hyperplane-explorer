@@ -24,7 +24,7 @@ function evaluate(b, col) {
 }
 // Most valuable victim first, least valuable attacker as the tie-break; promotions count as captures of a queen.
 const score = m => (m.captured ? 10 * val(m.captured) - val(m.piece) : 0) + (m.promo ? 85 : 0);
-const order = moves => moves.sort((a, b) => score(b) - score(a));
+const order = moves => { for (const m of moves) m.score = score(m); return moves.sort((a, b) => b.score - a.score); };
 
 function quiesce(b, col, alpha, beta, left) {
   const stand = evaluate(b, col);

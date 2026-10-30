@@ -16,6 +16,10 @@ img { max-width: 100%; }
   --ana: #ffb067;         /* Shadow view: tint toward ana (near the eye) */
   --key: #1b2430;
   --key-hi: #263244;
+  --floor-a: #1a2331;     /* the 4D floor's checker, and its integer-w lines */
+  --floor-b: #222d3e;
+  --floor-w: #3a3358;
+  --chrome: #d3dae4;      /* polished metal: the chess stands, the 4D TV */
   --display: "Bricolage Grotesque", "Avenir Next", "Segoe UI", sans-serif;
   --body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
   --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
@@ -110,7 +114,7 @@ h2 span { letter-spacing: 0.04em; text-transform: none; }
 .shape-row.hidden-shape .nm { text-decoration: line-through; text-decoration-color: var(--muted); }
 .twisted { position: relative; display: inline-block; }   /* ×̃, the twisted product: the combining tilde misplaces in most fonts */
 .twisted::after { content: "~"; position: absolute; left: 0; right: 0; top: -0.5em; text-align: center; font-size: 0.85em; }
-.shape-row.hidden-shape .bar { opacity: .15 !important; }
+.shape-row.hidden-shape .bar { opacity: .15; }
 .vis-all { display: inline-flex; gap: 6px; }
 .vis-all button { appearance: none; font: 500 11px var(--mono); letter-spacing: .02em; text-transform: none; color: var(--muted); background: none; border: 1px solid var(--line); border-radius: 10px; padding: 2px 9px; cursor: pointer; white-space: nowrap; }
 .vis-all button:hover { color: var(--ink); background: var(--key); }

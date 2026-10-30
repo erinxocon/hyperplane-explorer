@@ -1,14 +1,11 @@
 import { test, expect } from '@playwright/test';
+import { watchErrors } from './errors.js';
 
 // Loads 4D chess, plays a move by clicking the board, waits for the computer's reply, tries every view, another
 // ana axis and the plain stand, takes both moves back, and fails on any page error.
 test('4D chess: a move, the reply, every view', async ({ page }) => {
   test.setTimeout(180_000);   // software GL is slow to draw this scene
-  const errors = [];
-  const isFont = url => /fonts\.(googleapis|gstatic)\.com/.test(url);
-  page.on('pageerror', e => errors.push(String(e)));
-  page.on('console', m => { if (m.type() === 'error' && !m.text().startsWith('Failed to load resource')) errors.push(m.text()); });
-  page.on('requestfailed', r => { if (!isFont(r.url())) errors.push(`request failed: ${r.url()}`); });
+  const errors = watchErrors(page);
 
   await page.goto('/chess.html');
   await expect(page.locator('#view canvas')).toBeVisible();

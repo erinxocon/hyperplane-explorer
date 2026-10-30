@@ -3,12 +3,16 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { ConvexGeometry } from 'three/examples/jsm/geometries/ConvexGeometry.js';
-import { add, sub, mul, dot, norm, lerp, ident, rot, mm, mv, slerp } from './math4d.js';
+import { add, sub, mul, dot, lerp, ease, ident, rot, mm, mv, slerp } from './math4d.js';
 import { tesseract, cell16, cell24, cell5, duoprism, cell600, klein, spunKlein, mobius4 } from './shapes.js';
+import { createViewer, bindControls } from './viewer.js';
+import { tok, createFloor, createMarker, depthShade, tubeMatrix, knobMatrix } from './scenery.js';
+import { createReadout, createCompass, drawRulerRow, stackLabels as labelsFor, stackOffs, placeStackTags } from './hud.js';
 import GLOBE_VS from './shaders/globe.vert.glsl?raw';
 import GLOBE_FS from './shaders/globe.frag.glsl?raw';
 import SURF_VS from './shaders/earth-cap.vert.glsl?raw';
 import SURF_FS from './shaders/earth-cap.frag.glsl?raw';
+import EARTH_GLSL from './shaders/earth-surface.glsl?raw';
 import landMaskUrl from './assets/land-mask.png';
 import './styles.css';
 
@@ -32,47 +36,20 @@ function main() {
   const FLOOR_Y = -2.4;
 
   /* ---------- viewer state ---------- */
-  const START = { P: [0, 0, 0, 0], R: [1, 0, 0, 0], U: [0, 1, 0, 0], F: [0, 0, 1, 0], A: [0, 0, 0, 1] };
-  let S = JSON.parse(JSON.stringify(START));
+  const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  // You (viewer.js): the frame S, which controls and frame ops act on, and volume view's tween VOL. S keeps its
+  // identity for the page's life (reset refills it), so it can be held here as a const.
+  const you = createViewer(), S = you.S, VOL = you.vol, orthonormalize = you.orthonormalize;
+  const act = (code, amount) => { you.act(code, amount); dirty = true; };
   let spinT = 0, dirty = true, jump = null;
-  // V is the display frame everything is drawn and measured in. It shares P, R and F with S; controls and
-  // frame ops act on S, rendering reads V. Volume view turns V 90° in the U–A plane (U -> A, A -> -U), so the
-  // slice lies level, w shows as up and the walker frame, with U locked to world y, is never touched.
+  // V is the display frame everything is drawn and measured in. It shares P, R and F with S; rendering reads V.
+  // Volume view turns V 90° in the U–A plane (U -> A, A -> -U), so the slice lies level, w shows as up and the
+  // walker frame, with U locked to world y, is never touched.
   let V = S;
-  const VOL = { on: false, t: 0 };
-  const viewFrame = () => {
-    if (!VOL.t) return S;
-    const th = ease(VOL.t) * Math.PI / 2, c = Math.cos(th), s = Math.sin(th);
-    return { P: S.P, R: S.R, F: S.F, U: add(mul(S.U, c), mul(S.A, s)), A: sub(mul(S.A, c), mul(S.U, s)) };
-  };
   const VIEW = { mode: 'slice' };
-  const SPEED = 2.4, ROT = 1.0; // units/s, rad/s
-
-  function orthonormalize() {
-    // U stays world y; Gram-Schmidt F, R, A in the remaining x-z-w subspace
-    S.F = norm(S.F);
-    S.R = norm(sub(S.R, mul(S.F, dot(S.R, S.F))));
-    S.A = sub(S.A, mul(S.F, dot(S.A, S.F)));
-    S.A = norm(sub(S.A, mul(S.R, dot(S.A, S.R))));
-  }
-  function rotatePlane(plane, t) {
-    const c = Math.cos(t), s = Math.sin(t);
-    const pair = { RF: ['F', 'R'], FA: ['F', 'A'], RA: ['R', 'A'] }[plane];
-    const [p, q] = pair, a = S[p], b = S[q];
-    S[p] = add(mul(a, c), mul(b, s));     // p tips toward q
-    S[q] = sub(mul(b, c), mul(a, s));
-    orthonormalize();
-  }
-  function act(code, amount) {
-    const [kind, ax, sign] = code.split(':');
-    if (kind === 'move') S.P = add(S.P, mul(S[ax], +sign * amount * SPEED));
-    else rotatePlane(ax, +sign * amount * ROT);
-    dirty = true;
-  }
 
   /* ---------- three.js scene ---------- */
-  const css = getComputedStyle(document.documentElement);
-  const BG = new THREE.Color(css.getPropertyValue('--ground').trim());
+  const BG = new THREE.Color(tok('--ground'));
   let renderer;
   try { renderer = new THREE.WebGLRenderer({ antialias: true }); }
   catch (e) { view.insertAdjacentHTML('beforeend', '<div class="err">WebGL is not available in this browser, so the 3D slice cannot be drawn.</div>'); return; }
@@ -89,50 +66,17 @@ function main() {
   controls.enableDamping = true;
   controls.maxDistance = 40; controls.minDistance = 1.5;
   controls.update();
-  let orbited = false;
-  controls.addEventListener('start', () => { orbited = true; });
+  let orbited = false, camTween = null;
+  controls.addEventListener('start', () => { orbited = true; camTween = null; });
   const CAM0 = new THREE.Vector3(0, 3.4, 6.2);
-  let camTween = null;
-  controls.addEventListener('start', () => { camTween = null; });
 
   scene.add(new THREE.HemisphereLight(0xdfe7ff, 0x1a2230, 0.75));
   const sun = new THREE.DirectionalLight(0xffffff, 0.85); sun.position.set(4, 9, 6); scene.add(sun);
   const fill = new THREE.DirectionalLight(0xb8a6ff, 0.25); fill.position.set(-6, 2, -4); scene.add(fill);
 
-  // Floor: the 4D hyperplane y = FLOOR_Y, cut by your slice. Checker is on world (x, z, w),
-  // so the tiles shift as you move ana/kata or rotate the slice.
-  const floorMat = new THREE.ShaderMaterial({
-    uniforms: {
-      uP: { value: new THREE.Vector4() }, uR: { value: new THREE.Vector4() }, uU: { value: new THREE.Vector4() }, uF: { value: new THREE.Vector4() },
-      cA: { value: new THREE.Color('#1a2331') }, cB: { value: new THREE.Color('#222d3e') }, cW: { value: new THREE.Color('#3a3358') }, cBg: { value: BG },
-    },
-    vertexShader: `varying vec3 vPos; void main(){ vec4 wp = modelMatrix * vec4(position,1.0); vPos = wp.xyz; gl_Position = projectionMatrix * viewMatrix * wp; }`,
-    fragmentShader: `
-      uniform vec4 uP, uR, uU, uF; uniform vec3 cA, cB, cW, cBg; varying vec3 vPos;
-      void main(){
-        vec4 X = uP + vPos.x * uR + vPos.y * uU + (-vPos.z) * uF;
-        vec3 q = floor(vec3(X.x, X.z, X.w));
-        float k = mod(q.x + q.y + q.z, 2.0);
-        vec3 col = mix(cA, cB, k);
-        // when the slice is tilted into w, mark where the floor crosses integer w
-        float grad = length(vec2(uR.w, uF.w));
-        float wl = abs(fract(X.w + 0.5) - 0.5) / max(grad, 1e-3);
-        col = mix(col, cW, smoothstep(0.07, 0.0, wl) * smoothstep(0.02, 0.12, grad) * 0.9);
-        float fade = 1.0 - smoothstep(9.0, 30.0, length(vPos.xz - vec2(0.0, -4.0)));
-        gl_FragColor = vec4(mix(cBg, col, fade), 1.0);
-      }`,
-  });
-  const floor = new THREE.Mesh(new THREE.PlaneGeometry(90, 90), floorMat);
-  floor.rotation.x = -Math.PI / 2;
-  scene.add(floor);
-
-  // Viewer marker: you, at the origin of the slice, with your R / U / F axes
-  const me = new THREE.Group();
-  me.add(new THREE.Mesh(new THREE.SphereGeometry(0.13, 24, 16), new THREE.MeshStandardMaterial({ color: 0xc4a7ff, emissive: 0x3a2a66, roughness: 0.4 })));
-  me.add(new THREE.ArrowHelper(new THREE.Vector3(1, 0, 0), new THREE.Vector3(), 0.9, 0xe0857a, 0.18, 0.1));
-  me.add(new THREE.ArrowHelper(new THREE.Vector3(0, 1, 0), new THREE.Vector3(), 0.9, 0x9bd59b, 0.18, 0.1));
-  me.add(new THREE.ArrowHelper(new THREE.Vector3(0, 0, -1), new THREE.Vector3(), 1.2, 0x8fb5ff, 0.2, 0.11));
-  scene.add(me);
+  // the floor, the 4D hyperplane y = FLOOR_Y cut by your slice, and you at the origin of the slice
+  const floor = createFloor(BG, [9, 30, -4]);
+  scene.add(floor.mesh, createMarker());
 
   // Earth: a 3D ball (layered) times a short w-interval. Each pixel casts a ray through the slice,
   // maps it to 4D (X - C = Q + p.x*R + p.y*U - p.z*F), and intersects the layered ball in xyz
@@ -142,7 +86,6 @@ function main() {
 
   // Earth's two w-caps in Shadow view: ordinary sphere meshes whose vertices are projected from 4D.
   const TUBE = new THREE.CylinderGeometry(1, 1, 1, 8, 1, true), KNOB = new THREE.SphereGeometry(1, 12, 8);
-  const GROUND = new THREE.Color('#0e131b');
   // Glome wireframe: the Clifford torus (eta = 45 deg) plus the two great circles it separates, which are Hopf-linked.
   const GLOME_SEGS = (() => {
     const segs = [], N = 48, P = (eta, a, b) => [Math.cos(eta) * Math.cos(a), Math.cos(eta) * Math.sin(a), Math.sin(eta) * Math.cos(b), Math.sin(eta) * Math.sin(b)];
@@ -176,13 +119,13 @@ function main() {
       };
       const box = new THREE.BoxGeometry(2, 2, 2);
       o.proxies = [0, 1, 2].map(() => {
-        const px = new THREE.Mesh(box, new THREE.ShaderMaterial({ uniforms: { ...o.uni, uQ: { value: new THREE.Vector4() }, uShift: { value: new THREE.Vector3() } }, vertexShader: GLOBE_VS, fragmentShader: GLOBE_FS, side: THREE.BackSide }));
+        const px = new THREE.Mesh(box, new THREE.ShaderMaterial({ uniforms: { ...o.uni, uQ: { value: new THREE.Vector4() }, uShift: { value: new THREE.Vector3() } }, vertexShader: GLOBE_VS, fragmentShader: EARTH_GLSL + GLOBE_FS, side: THREE.BackSide }));
         o.group.add(px); return px;
       });
       o.caps = [0, 1].map(() => {
         const g = new THREE.SphereGeometry(1, 48, 32);
         g.setAttribute('aDir', g.getAttribute('position').clone());
-        const mesh = new THREE.Mesh(g, new THREE.ShaderMaterial({ uniforms: { uLand: o.uni.uLand, uSpin: o.uni.uSpin, uLight: o.uni.uLight, uAlpha: { value: 1 }, uCenter: { value: new THREE.Vector3() } }, vertexShader: SURF_VS, fragmentShader: SURF_FS, side: THREE.DoubleSide }));
+        const mesh = new THREE.Mesh(g, new THREE.ShaderMaterial({ uniforms: { uLand: o.uni.uLand, uSpin: o.uni.uSpin, uLight: o.uni.uLight, uAlpha: { value: 1 }, uCenter: { value: new THREE.Vector3() } }, vertexShader: SURF_VS, fragmentShader: EARTH_GLSL + SURF_FS, side: THREE.DoubleSide }));
         o.group.add(mesh); return mesh;
       });
       o.links = new THREE.LineSegments(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: 0x8fc0ee, transparent: true, opacity: 0.7 }));
@@ -234,7 +177,7 @@ function main() {
       o.group.add(o.tubes, o.knobs);
     }
     o.baseCol = col;
-    o.dimCol = col.clone().lerp(GROUND, 0.72);
+    o.dimCol = col.clone().lerp(BG, 0.72);
     o.brightCol = col.clone().lerp(new THREE.Color(0xffffff), 0.3);
   });
 
@@ -242,7 +185,7 @@ function main() {
 
   function clearGroup(g) {
     for (const c of [...g.children]) {
-      c.traverse(n => { if (n.geometry && n.geometry !== sphereGeo) n.geometry.dispose(); });
+      c.traverse(n => { if (n.geometry) n.geometry.dispose(); });
       g.remove(c);
     }
   }
@@ -285,12 +228,11 @@ function main() {
     target.add(new THREE.Points(new THREE.BufferGeometry().setFromPoints(g.ends), o.ptMat));
   }
   function buildSection(o, pts) { clearGroup(o.dyn); addSection(o.dyn, o, sectionGeometry(pts)); }
-  const stackLabels = () => VOL.on ? ['above', 'middle', 'below'] : ['kata side', 'middle', 'ana side'];
-  // Stack: three parallel cuts through the shape, a quarter of its extent apart along ana, laid side by side.
+  const stackLabels = () => labelsFor(VOL.on);
+  // Stack: three parallel cuts through the shape, laid side by side.
   function buildStack(o, W) {
     clearGroup(o.dyn);
-    const [lo, hi] = o.range, mid = (lo + hi) / 2, step = (hi - lo) / 4;
-    const parts = [-1, 0, 1].map(k => sectionGeometry(sectionPoints(W, o.shape.edges, mid + k * step).pts));
+    const parts = stackOffs(o.range).map(off => sectionGeometry(sectionPoints(W, o.shape.edges, off).pts));
     const box = new THREE.Box3();
     let width = 0.8;
     for (const g of parts) {
@@ -298,26 +240,17 @@ function main() {
       if (g.geo) { g.geo.computeBoundingBox(); box.copy(g.geo.boundingBox); } else box.setFromPoints(g.ends);
       width = Math.max(width, box.max.x - box.min.x);
     }
-    const spacing = width + 0.7, base = local(o.center);
+    const spacing = width + 0.7;
     parts.forEach((g, i) => { if (!g) return; const panel = new THREE.Group(); panel.position.x = (i - 1) * spacing; addSection(panel, o, g); o.dyn.add(panel); });
     o.stackInfo = { spacing, bottom: -(width / 2 + 0.35), labels: stackLabels() };
   }
   // Shadow: perspective projection along ana from an eye 1.6 radii ana of the center. Edges become tubes,
   // shaded from dim (kata, far from the eye) to bright (ana, near it).
-  const _d = new THREE.Object3D(), _up = new THREE.Vector3(0, 1, 0), _v = new THREE.Vector3(), _c = new THREE.Color(), _white = new THREE.Color(0xffffff);
-  const KATA_TINT = new THREE.Color(css.getPropertyValue('--kata').trim()), ANA_TINT = new THREE.Color(css.getPropertyValue('--ana').trim()), TINT = 0.3;
-  // brightness runs dim -> bright with t; the far (kata) end also leans cool and the near (ana) end warm.
-  // The tint shifts hue only: the result is rescaled to the untinted luma so the brightness depth cue is kept.
-  const luma = c => 0.299 * c.r + 0.587 * c.g + 0.114 * c.b;
-  const shadeAt = (o, t) => {
-    t = Math.min(1, Math.max(0, t));
-    _c.copy(o.dimCol).lerp(o.brightCol, t);
-    const l0 = luma(_c);
-    _c.lerp(t < 0.5 ? KATA_TINT : ANA_TINT, TINT * Math.abs(2 * t - 1));
-    const l1 = luma(_c);
-    if (l1 > 0) _c.multiplyScalar(l0 / l1);
-    return _c.setRGB(Math.min(1, _c.r), Math.min(1, _c.g), Math.min(1, _c.b));
-  };
+  const _c = new THREE.Color(), _white = new THREE.Color(0xffffff);
+  // o's color at depth t, from 0 (kata, dim) to 1 (ana, bright); returns a shared color
+  const shadeAt = (o, t) => depthShade(_c, o.dimCol, o.brightCol, t);
+  // a bright tube from projected point a to b (as from projector), shaded by their mean depth
+  const ridge = (o, a, b) => ({ a: a.p, b: b.p, rr: 0.012 * (a.k + b.k), color: shadeAt(o, ((a.a + b.a) / 2 / o.rad4 + 1) / 2).clone().lerp(_white, 0.55) });
   function projector(C, E) {
     const base = local(C);
     return X => {
@@ -325,13 +258,13 @@ function main() {
       return { p: new THREE.Vector3(base.x + dot(r, V.R) * k, base.y + dot(r, V.U) * k, base.z - dot(r, V.F) * k), a, k };
     };
   }
-  // matrix for a TUBE instance of radius rr from a to b
-  const tubeMatrix = (a, b, rr) => {
-    const len = a.distanceTo(b);
-    _d.position.copy(a).add(b).multiplyScalar(0.5);
-    if (len > 1e-6) _d.quaternion.setFromUnitVectors(_up, _v.subVectors(b, a).normalize()); else _d.quaternion.identity();
-    _d.scale.set(rr, Math.max(len, 1e-4), rr); _d.updateMatrix();
-    return _d.matrix;
+  // Replace a mesh's geometry with one built from flat xyz arrays, e.g. { position, color }, and an optional index.
+  const setGeo = (mesh, attrs, index) => {
+    mesh.geometry.dispose();
+    const geo = new THREE.BufferGeometry();
+    for (const [name, arr] of Object.entries(attrs)) geo.setAttribute(name, new THREE.Float32BufferAttribute(arr, 3));
+    if (index) geo.setIndex(index);
+    return (mesh.geometry = geo);
   };
   function buildWire(o, W) {
     clearGroup(o.dyn);
@@ -342,8 +275,7 @@ function main() {
       o.tubes.setColorAt(n, shadeAt(o, ((PV[i].a + PV[j].a) / 2 / o.rad4 + 1) / 2));
     });
     PV.forEach((v, n) => {
-      _d.position.copy(v.p); _d.quaternion.identity(); _d.scale.setScalar(0.042 * v.k); _d.updateMatrix();
-      o.knobs.setMatrixAt(n, _d.matrix);
+      o.knobs.setMatrixAt(n, knobMatrix(v.p, 0.042 * v.k));
       o.knobs.setColorAt(n, shadeAt(o, (v.a / o.rad4 + 1) / 2));
     });
     for (const im of [o.tubes, o.knobs]) { im.instanceMatrix.needsUpdate = true; if (im.instanceColor) im.instanceColor.needsUpdate = true; }
@@ -374,16 +306,21 @@ function main() {
     }
     return segs;
   }
-  // Draw curves as chains of tubes, each segment { a, b, rr, color }.
+  // Draw curves as chains of tubes, each segment { a, b, rr, color }. The meshes have room for many more segments
+  // than are ever drawn (the Klein bottle's for one per triangle), so only the used part of each buffer is uploaded.
   function drawTubes(o, segs) {
     segs.forEach(({ a, b, rr, color }, n) => {
       o.tubes.setMatrixAt(n, tubeMatrix(a, b, rr));
-      _d.position.copy(a); _d.quaternion.identity(); _d.scale.setScalar(rr); _d.updateMatrix();
-      o.knobs.setMatrixAt(n, _d.matrix);
+      o.knobs.setMatrixAt(n, knobMatrix(a, rr));
       o.tubes.setColorAt(n, color); o.knobs.setColorAt(n, color);
     });
-    o.tubes.count = o.knobs.count = segs.length;
-    for (const im of [o.tubes, o.knobs]) { im.instanceMatrix.needsUpdate = true; if (im.instanceColor) im.instanceColor.needsUpdate = true; }
+    const n = o.tubes.count = o.knobs.count = segs.length;
+    if (!n) return;   // nothing drawn; an update range of 0 would make WebGL2 upload the whole buffer
+    for (const im of [o.tubes, o.knobs]) for (const [attr, size] of [[im.instanceMatrix, 16], [im.instanceColor, 3]]) {
+      if (!attr) continue;
+      attr.updateRange.offset = 0; attr.updateRange.count = n * size;
+      attr.needsUpdate = true;
+    }
   }
   // Slice and Stack: the cut curves, each panel's shifted sideways by `shift` (Stack).
   const drawCuts = (o, panels) => drawTubes(o, panels.flatMap(({ segs, shift }) =>
@@ -402,21 +339,11 @@ function main() {
     for (let i = 0; i < nu; i++) for (let j = 0; j < nv; j++) idx.push(g(i, j), g(i + 1, j), g(i + 1, j + 1), g(i, j), g(i + 1, j + 1), g(i, j + 1));
     const line = (a, b) => { for (const k of [a, b]) { lpos.push(pos[3 * k], pos[3 * k + 1], pos[3 * k + 2]); _c.setRGB(col[3 * k], col[3 * k + 1], col[3 * k + 2]).lerp(_white, 0.35); lcol.push(_c.r, _c.g, _c.b); } };
     for (let i = 0; i < nu; i += nu / 24) for (let j = 0; j < nv; j++) line(g(i, j), g(i, j + 1));
-    const ridge = [];
-    for (const j of [nv / 4, 3 * nv / 4]) for (let i = 0; i < nu; i++) {
-      const a = PV[grid[g(i, j)]], b = PV[grid[g(i + 1, j)]];
-      ridge.push({ a: a.p, b: b.p, rr: 0.012 * (a.k + b.k), color: shadeAt(o, ((a.a + b.a) / 2 / o.rad4 + 1) / 2).clone().lerp(_white, 0.55) });
-    }
-    drawTubes(o, ridge);
-    const skin = new THREE.BufferGeometry();
-    skin.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-    skin.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
-    skin.setIndex(idx); skin.computeVertexNormals();
-    o.skin.geometry.dispose(); o.skin.geometry = skin;
-    const wire = new THREE.BufferGeometry();
-    wire.setAttribute('position', new THREE.Float32BufferAttribute(lpos, 3));
-    wire.setAttribute('color', new THREE.Float32BufferAttribute(lcol, 3));
-    o.wire.geometry.dispose(); o.wire.geometry = wire;
+    const segs = [];
+    for (const j of [nv / 4, 3 * nv / 4]) for (let i = 0; i < nu; i++) segs.push(ridge(o, PV[grid[g(i, j)]], PV[grid[g(i + 1, j)]]));
+    drawTubes(o, segs);
+    setGeo(o.skin, { position: pos, color: col }, idx).computeVertexNormals();
+    setGeo(o.wire, { position: lpos, color: lcol });
   }
 
   // 3D Klein bottle: each fiber is an ellipsoid X = c + M p (p on the unit sphere) in its own 3-space, so the
@@ -489,15 +416,9 @@ function main() {
         const c = shadeAt(o, (P.a / o.rad4 + 1) / 2);
         pos.push(P.p.x, P.p.y, P.p.z); col.push(c.r, c.g, c.b);
       }
-    const g = new THREE.BufferGeometry();
-    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-    g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
-    o.wire.geometry.dispose(); o.wire.geometry = g;
+    setGeo(o.wire, { position: pos, color: col });
     const segs = [];
-    for (const sg of [1, -1]) for (let i = 0; i < F.length - 1; i++) {
-      const a = proj(fiberPoint(F[i], q.set(sg, 0, 0))), b = proj(fiberPoint(F[i + 1], q.set(sg, 0, 0)));
-      segs.push({ a: a.p, b: b.p, rr: 0.012 * (a.k + b.k), color: shadeAt(o, ((a.a + b.a) / 2 / o.rad4 + 1) / 2).clone().lerp(_white, 0.55) });
-    }
+    for (const sg of [1, -1]) for (let i = 0; i < F.length - 1; i++) segs.push(ridge(o, proj(fiberPoint(F[i], q.set(sg, 0, 0))), proj(fiberPoint(F[i + 1], q.set(sg, 0, 0)))));
     drawTubes(o, segs);
   }
 
@@ -585,20 +506,10 @@ function main() {
         for (const P of [rim[k], rim[(k + 1) % NS]]) { const c = shade(P).lerp(_white, 0.3); lpos.push(P.p.x, P.p.y, P.p.z); lcol.push(c.r, c.g, c.b); }
       }
     }
-    const cards = new THREE.BufferGeometry();
-    cards.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-    cards.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
-    cards.setIndex(idx); cards.computeVertexNormals();
-    o.cards.geometry.dispose(); o.cards.geometry = cards;
-    const rims = new THREE.BufferGeometry();
-    rims.setAttribute('position', new THREE.Float32BufferAttribute(lpos, 3));
-    rims.setAttribute('color', new THREE.Float32BufferAttribute(lcol, 3));
-    o.wire.geometry.dispose(); o.wire.geometry = rims;
+    setGeo(o.cards, { position: pos, color: col }, idx).computeVertexNormals();
+    setGeo(o.wire, { position: lpos, color: lcol });
     const segs = [];
-    for (const sg of [1, -1]) for (let i = 0; i < N; i++) {
-      const a = proj(diskPoint(D[i], 0, sg)), b = proj(diskPoint(D[i + 1], 0, sg));
-      segs.push({ a: a.p, b: b.p, rr: 0.012 * (a.k + b.k), color: shadeAt(o, ((a.a + b.a) / 2 / o.rad4 + 1) / 2).clone().lerp(_white, 0.55) });
-    }
+    for (const sg of [1, -1]) for (let i = 0; i < N; i++) segs.push(ridge(o, proj(diskPoint(D[i], 0, sg)), proj(diskPoint(D[i + 1], 0, sg))));
     drawTubes(o, segs);
   }
 
@@ -623,7 +534,6 @@ function main() {
   };
   const spinM = t => mm(rot(0, 1, t), rot(2, 3, t));     // isoclinic: X–Y and Z–W at the same rate
   const displayO = () => (RK.spin.on || RK.spin.stopping) ? mm(spinM(RK.spin.t), RK.O) : RK.O;
-  const ease = t => t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
   const colOf = (M, i) => [M[i], M[4 + i], M[8 + i], M[12 + i]];
   const inLayer = (c, axis, val) => Math.round(mv(c.M, c.h)[axis]) === val;
 
@@ -675,12 +585,6 @@ function main() {
         }
       }
     }
-    const setGeo = (mesh, attrs) => {
-      mesh.geometry.dispose();
-      const geo = new THREE.BufferGeometry();
-      for (const [name, arr] of Object.entries(attrs)) geo.setAttribute(name, new THREE.Float32BufferAttribute(arr, 3));
-      mesh.geometry = geo;
-    };
     setGeo(o.mesh, { position: pos, normal: nrm, color: col });
     setGeo(o.lines, { position: lin });
     setGeo(o.hiLines, { position: hil });
@@ -756,14 +660,12 @@ function main() {
       for (const P of [pt(u0), pt(u1)]) {
         pos.push(P.p.x, P.p.y, P.p.z);
         const c = shadeAt(o, (P.a / o.radius + 1) / 2);
-        if (core) c.lerp(new THREE.Color(0xffffff), 0.45);
+        if (core) c.lerp(_white, 0.45);
         col.push(c.r, c.g, c.b);
       }
     }
-    const g = new THREE.BufferGeometry();
-    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-    g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
-    o.wire.geometry.dispose(); o.wire.geometry = g; o.wire.visible = true;
+    setGeo(o.wire, { position: pos, color: col });
+    o.wire.visible = true;
   }
   // Earth is ball x [-h, h] in w. Its shadow: the two end caps (balls at w = +-h) projected from 4D,
   // joined by lines through the w direction, like the two circles and rulings of a drawn cylinder.
@@ -789,11 +691,13 @@ function main() {
   }
 
   function rebuild() {
-    V = viewFrame();
+    V = you.frame();
     const spinM = spinT ? mm(rot(0, 3, spinT * 0.37), rot(1, 2, spinT * 0.23)) : null;
+    // a fiber list's half-extent from its center along unit direction e, for Stack's spacing and labels
+    const fiberHalf = (o, F, e) => Math.max(...fiberExtent(F, e, o.center).map(x => Math.max(-x[0], x[1])));
     for (const o of WORLD) {
       if (o.puzzle) { buildPuzzle(o); continue; }
-      const mode = VIEW.mode;
+      const mode = VIEW.mode, M = o.orient && (spinM ? mm(spinM, o.orient) : o.orient);
       if (o.globe) {
         const q = sub(V.P, o.center), d = -dot(q, V.A);
         const m = o.radius * Math.hypot(V.A[0], V.A[1], V.A[2]) + o.thick * Math.abs(V.A[3]);
@@ -817,7 +721,7 @@ function main() {
           o.state = !vis ? 'not in slice' : Math.abs(V.A[3]) > 0.9995 ? 'whole globe' : 'sliced open';
         } else if (mode === 'stack') {
           const spacing = 2 * o.radius + 0.7;
-          [-1, 0, 1].forEach((k, i) => setProxy(o.proxies[i], d + k * m / 2, k * spacing));
+          stackOffs(o.range).forEach((off, i) => setProxy(o.proxies[i], off, (i - 1) * spacing));
           o.stackInfo = { spacing, bottom: -o.radius - 0.35, labels: stackLabels() };
           o.state = Math.abs(V.A[3]) > 0.9995 ? 'stacked, whole' : 'stacked, sliced';
         } else {
@@ -837,13 +741,13 @@ function main() {
         if (mode === 'slice') setBall(o.balls[1], 0, 0);
         else if (mode === 'stack') {
           const spacing = 2 * rr + 0.6;
-          [-1, 0, 1].forEach((k, i) => setBall(o.balls[i], d + k * rr / 2, k * spacing));
+          stackOffs(o.range).forEach((off, i) => setBall(o.balls[i], off, (i - 1) * spacing));
           o.stackInfo = { spacing, bottom: -rr - 0.35, labels: stackLabels() };
         } else buildGlomeShadow(o, spinM);
         continue;
       }
       if (o.disks) {
-        const D = placeFibers(o, o.disks, spinM ? mm(spinM, o.orient) : o.orient);
+        const D = placeFibers(o, o.disks, M);
         const ea = fiberExtent(D, V.A, V.P);
         o.range = [Math.min(...ea.map(x => x[0])), Math.max(...ea.map(x => x[1]))];
         // the offsets where your slice would cross every disk, cutting a Möbius strip; tapping the name moves there
@@ -855,11 +759,9 @@ function main() {
           const [kind] = buildRibbons(o, D, [{ off: 0, shift: 0 }]);
           o.state = kind === 'mobius' ? 'Möbius strip' : !kind ? 'not in slice' : kind === 1 ? 'ribbon' : `${kind} ribbons`;
         } else if (mode === 'stack') {
-          const mid = (o.range[0] + o.range[1]) / 2, step = (o.range[1] - o.range[0]) / 4;
-          const half = e => Math.max(...fiberExtent(D, e, o.center).map(x => Math.max(-x[0], x[1])));
-          const spacing = 2 * half(V.R) + 0.7;
-          buildRibbons(o, D, [-1, 0, 1].map(k => ({ off: mid + k * step, shift: k * spacing })));
-          o.stackInfo = { spacing, bottom: -(half(V.U) + 0.35), labels: stackLabels() };
+          const spacing = 2 * fiberHalf(o, D, V.R) + 0.7;
+          buildRibbons(o, D, stackOffs(o.range).map((off, i) => ({ off, shift: (i - 1) * spacing })));
+          o.stackInfo = { spacing, bottom: -(fiberHalf(o, D, V.U) + 0.35), labels: stackLabels() };
           o.state = 'stacked';
         } else {
           buildCardShadow(o, D);
@@ -868,37 +770,33 @@ function main() {
         continue;
       }
       if (o.fibers) {
-        const F = placeFibers(o, o.fibers, spinM ? mm(spinM, o.orient) : o.orient);
+        const F = placeFibers(o, o.fibers, M);
         const ea = fiberExtent(F, V.A, V.P);
         o.range = [Math.min(...ea.map(x => x[0])), Math.max(...ea.map(x => x[1]))];
         clearGroup(o.dyn);
         o.wire.visible = o.tubes.visible = o.knobs.visible = mode === 'shadow';
         if (mode === 'slice') addFiberSlice(o, F, 0, 0);
         else if (mode === 'stack') {
-          const [lo, hi] = o.range, mid = (lo + hi) / 2, step = (hi - lo) / 4;
-          const half = e => Math.max(...fiberExtent(F, e, o.center).map(x => Math.max(-x[0], x[1])));
-          const spacing = 2 * half(V.R) + 0.7;
-          [-1, 0, 1].forEach(k => addFiberSlice(o, F, mid + k * step, k * spacing));
-          o.stackInfo = { spacing, bottom: -(half(V.U) + 0.35), labels: stackLabels() };
+          const spacing = 2 * fiberHalf(o, F, V.R) + 0.7;
+          stackOffs(o.range).forEach((off, i) => addFiberSlice(o, F, off, (i - 1) * spacing));
+          o.stackInfo = { spacing, bottom: -(fiberHalf(o, F, V.U) + 0.35), labels: stackLabels() };
         } else buildFiberShadow(o, F);
         continue;
       }
       if (o.surface) {
-        const M = spinM ? mm(spinM, o.orient) : o.orient;
         const W = o.surface.verts.map(v => add(o.center, mul(mv(M, v), o.scale)));
         const dA = W.map(v => dot(sub(v, V.P), V.A));
         o.range = [Math.min(...dA), Math.max(...dA)];
         o.skin.visible = o.wire.visible = mode === 'shadow';
         if (mode === 'slice') drawCuts(o, [{ segs: surfaceCuts(o, W, 0), shift: 0 }]);
         else if (mode === 'stack') {
-          const [lo, hi] = o.range, mid = (lo + hi) / 2, step = (hi - lo) / 4, spacing = 2 * o.rad4 + 0.7;
-          drawCuts(o, [-1, 0, 1].map(k => ({ segs: surfaceCuts(o, W, mid + k * step), shift: k * spacing })));
+          const spacing = 2 * o.rad4 + 0.7;
+          drawCuts(o, stackOffs(o.range).map((off, i) => ({ segs: surfaceCuts(o, W, off), shift: (i - 1) * spacing })));
           const half = Math.max(...W.map(v => Math.abs(dot(sub(v, o.center), V.U))));
           o.stackInfo = { spacing, bottom: -(half + 0.35), labels: stackLabels() };
         } else buildSurfaceShadow(o, W);
         continue;
       }
-      const M = spinM ? mm(spinM, o.orient) : o.orient;
       const W = o.shape.verts.map(v => add(o.center, mul(mv(M, v), o.scale)));
       const dA = W.map(v => dot(sub(v, V.P), V.A));
       o.range = [Math.min(...dA), Math.max(...dA)];
@@ -907,20 +805,12 @@ function main() {
       else if (mode === 'stack') buildStack(o, W);
       else buildWire(o, W);
     }
-    // the floor stays the plane where world y = FLOOR_Y; as volume view levels the slice it drops away and hides
-    const cu = V.U[1];
-    floor.visible = cu > 0.05;
-    floor.position.y = (FLOOR_Y - V.P[1]) / Math.max(cu, 0.05);
-    floorMat.uniforms.uP.value.set(...V.P);
-    floorMat.uniforms.uR.value.set(...V.R);
-    floorMat.uniforms.uU.value.set(...V.U);
-    floorMat.uniforms.uF.value.set(...V.F);
+    floor.update(V, FLOOR_Y);
     updatePanel();
   }
 
   /* ---------- panel ---------- */
   const ruler = document.getElementById('ruler');
-  const RANGE = 6;
   const EYE_ON = '<svg class="on" viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>';
   const EYE_OFF = '<svg class="off" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3l18 18"/><path d="M10.6 5.1A10.7 10.7 0 0 1 12 5c6.4 0 10 7 10 7a17 17 0 0 1-3.2 4.1M6.6 6.6C3.8 8.4 2 12 2 12s3.6 7 10 7a9.8 9.8 0 0 0 5.4-1.6"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/></svg>';
   let savedHidden = [];
@@ -956,9 +846,7 @@ function main() {
     b.innerHTML = `<span class="nm"><span class="dot" style="background:${o.color}"></span>${o.name}</span><span class="track"><span class="bar" style="background:${o.color}"></span></span>`;
     b.addEventListener('click', () => {
       const c = o.focus ?? (o.range[0] + o.range[1]) / 2;
-      const from = S.P.slice(), to = add(S.P, mul(V.A, c));
-      if (matchMedia('(prefers-reduced-motion: reduce)').matches) { S.P = to; dirty = true; }
-      else jump = { from, to, t: 0 };
+      startJump({ from: S.P.slice(), to: add(S.P, mul(V.A, c)), t: 0 });
     });
     o.row = b; o.barEl = b.querySelector('.bar');
     wrap.appendChild(b);
@@ -969,77 +857,32 @@ function main() {
   document.getElementById('hide-all').addEventListener('click', () => { WORLD.forEach(o => setHidden(o, true)); saveHidden(); });
 
   const earthState = document.getElementById('earth-state'), mobiusState = document.getElementById('mobius-state');
-  const mtx = document.getElementById('mtx');
-  const ROWS = [['R', 'right'], ['U', 'up'], ['F', 'forward'], ['A', 'ana']];
-  mtx.innerHTML = '<tr><th></th><th>x</th><th>y</th><th>z</th><th>w</th></tr>' +
-    ROWS.map(([k, n]) => `<tr class="${k.toLowerCase()}"><th class="r"><i>${k}</i> ${n}</th>${'<td></td>'.repeat(4)}</tr>`).join('');
-  const cells = [...mtx.querySelectorAll('tr')].slice(1).map(tr => [...tr.querySelectorAll('td')]);
-  const hud = ['px', 'py', 'pz', 'pw'].map(id => document.getElementById(id));
-  const fmt = v => { const s = (Math.abs(v) < 0.005 ? 0 : v).toFixed(2); return s.startsWith('-') ? '−' + s.slice(1) : s; };
+  const readout = createReadout();
 
   function updatePanel() {
-    S.P.forEach((v, i) => hud[i].textContent = fmt(v));
-    ROWS.forEach(([k], r) => V[k].forEach((v, c) => {
-      const td = cells[r][c];
-      td.textContent = fmt(v);
-      const pct = Math.round(Math.abs(v) * (k === 'A' ? 34 : 24));
-      td.style.background = `color-mix(in srgb, ${k === 'A' ? 'var(--accent)' : 'var(--ink)'} ${pct}%, transparent)`;
-    }));
+    readout(V, S.P);
     const earth = WORLD.find(o => o.globe);
     earthState.textContent = earth.state;
     earthState.classList.toggle('on', earth.state === 'sliced open');
     const mobius = WORLD.find(o => o.disks);
     mobiusState.textContent = mobius.state;
     mobiusState.classList.toggle('on', mobius.state === 'Möbius strip');
-    for (const o of WORLD) {
-      const [lo, hi] = o.range;
-      const L = Math.max(-RANGE, lo), H = Math.min(RANGE, hi);
-      const vis = H > L;
-      o.barEl.hidden = !vis;
-      if (vis) { o.barEl.style.left = ((L + RANGE) / (2 * RANGE) * 100) + '%'; o.barEl.style.width = Math.max(0.8, (H - L) / (2 * RANGE) * 100) + '%'; }
-      const inSlice = lo < 0 && hi > 0;
-      o.row.classList.toggle('in', inSlice);
-      const side = lo >= 0 ? (VOL.on ? 'below' : 'ana of') : (VOL.on ? 'above' : 'kata of');
-      o.row.title = (inSlice ? 'Intersects your slice' : `Lies ${side} you`) + ' · tap to center your slice on it';
-    }
+    for (const o of WORLD) drawRulerRow(o.row, o.barEl, o.range, VOL.on, 'Intersects your slice');
   }
 
   /* ---------- input ---------- */
-  const active = new Map(); // act code -> source count
-  const press = c => active.set(c, (active.get(c) || 0) + 1);
-  const release = c => { const n = (active.get(c) || 0) - 1; n > 0 ? active.set(c, n) : active.delete(c); };
-  const keyEls = {};
-  document.querySelectorAll('.key[data-act]').forEach(btn => {
-    const code = btn.dataset.act; keyEls[code] = btn;
-    let held = false;
-    const down = e => { if (e.button > 0) return; e.preventDefault(); held = true; try { btn.setPointerCapture(e.pointerId); } catch (_) {} press(code); act(code, 0.06); };
-    const up = () => { if (!held) return; held = false; release(code); };
-    btn.addEventListener('pointerdown', down);
-    ['pointerup', 'pointercancel', 'lostpointercapture'].forEach(t => btn.addEventListener(t, up));
-    btn.addEventListener('contextmenu', e => e.preventDefault());
-    btn.addEventListener('click', e => { if (e.detail === 0) act(code, 0.25); }); // keyboard activation: one step
-  });
-  const KEYS = {
-    KeyW: 'move:F:1', KeyS: 'move:F:-1', KeyA: 'move:R:-1', KeyD: 'move:R:1', KeyR: 'move:U:1', KeyF: 'move:U:-1',
-    KeyE: 'move:A:1', KeyQ: 'move:A:-1', KeyJ: 'rot:RF:-1', KeyL: 'rot:RF:1', KeyI: 'rot:FA:1', KeyK: 'rot:FA:-1', KeyO: 'rot:RA:1', KeyU: 'rot:RA:-1',
-  };
-  const keysDown = new Set();
+  // the movement keys and on-screen keys (viewer.js), acting on S; views and volume view have their own keys here
+  const keys = bindControls({ act });
   window.addEventListener('keydown', e => {
     if (e.metaKey || e.ctrlKey || e.altKey) return;
     const vm = { Digit1: 'slice', Digit2: 'stack', Digit3: 'shadow' }[e.code];
-    if (vm) { setMode(vm); return; }
-    if (e.code === 'KeyV') { if (!e.repeat) setVolume(!VOL.on); return; }
-    const c = KEYS[e.code]; if (!c) return;
-    e.preventDefault();
-    if (keysDown.has(e.code)) return;
-    keysDown.add(e.code); press(c);
+    if (vm) setMode(vm);
+    else if (e.code === 'KeyV') { if (!e.repeat) setVolume(!VOL.on); }
   });
-  window.addEventListener('keyup', e => { const c = KEYS[e.code]; if (c && keysDown.delete(e.code)) release(c); });
-  window.addEventListener('blur', () => { keysDown.clear(); active.clear(); });
 
   const spinBox = document.getElementById('spin');
   spinBox.addEventListener('change', () => { dirty = true; });
-  document.getElementById('reset').addEventListener('click', () => { S = JSON.parse(JSON.stringify(START)); jump = null; dirty = true; });
+  document.getElementById('reset').addEventListener('click', () => { you.reset(); jump = null; dirty = true; });
 
   /* ---------- Rubik panel ---------- */
   const AX = 'XYZW';
@@ -1139,7 +982,6 @@ function main() {
   const RULER_NOTE = rulerNote.innerHTML;
   function setVolume(on) {
     VOL.on = on;
-    if (reduceMotion) VOL.t = on ? 1 : 0;
     volBox.checked = on;
     axLo.textContent = on ? '6 above' : 'kata −6';
     axHi.textContent = on ? '6 below' : '+6 ana';
@@ -1189,8 +1031,8 @@ function main() {
     const to = { R: [1 / s2, 0, -1 / s2, 0], F: [1 / s6, 0, 1 / s6, -2 / s6], A: [1 / s3, 0, 1 / s3, 1 / s3] };
     const P = sub([o.center[0], 0, o.center[2], o.center[3]], mul(to.F, 3.2));
     const opposite = !slerp(frameMat({ R: S.R, F: S.F, A: S.A }), frameMat(to), 0.5); // exactly 180 degrees away: no unique path
-    if (reduceMotion || opposite) { S.R = to.R; S.F = to.F; S.A = to.A; S.U = [0, 1, 0, 0]; S.P = P; jump = null; dirty = true; return; }
-    jump = { from: S.P.slice(), to: P, t: 0, dur: 1.3, frame: { from: { R: S.R, F: S.F, A: S.A }, to } };
+    if (opposite) { S.R = to.R; S.F = to.F; S.A = to.A; S.U = [0, 1, 0, 0]; S.P = P; jump = null; dirty = true; return; }
+    startJump({ from: S.P.slice(), to: P, t: 0, dur: 1.3, frame: { from: { R: S.R, F: S.F, A: S.A }, to } });
   });
   document.getElementById('rk-goto').addEventListener('click', () => {
     clearTricks();
@@ -1199,8 +1041,7 @@ function main() {
     if (VOL.on && RK.axis === 1) {
       // volume view already slices level: just move to the layer's height
       explain('faceY'); framePuzzle(VIEW.mode === 'stack' ? 1.6 : 1, 1.1);
-      const to = add(S.P, mul(S.U, T[1] - S.P[1]));
-      if (reduceMotion) { S.P = to; dirty = true; } else jump = { from: S.P.slice(), to, t: 0 };
+      startJump({ from: S.P.slice(), to: add(S.P, mul(S.U, T[1] - S.P[1])), t: 0 });
       return;
     }
     if (VOL.on) setVolume(false);
@@ -1213,13 +1054,34 @@ function main() {
       const c = dot(S.A, e), wv = sub(e, mul(S.A, c)), sn = Math.hypot(...wv);
       if (sn > 1e-6) { turn = { R: S.R, F: S.F, A: S.A, v: mul(wv, 1 / sn), theta: Math.atan2(sn, c) }; Af = e; }
     }
-    const to = add(S.P, mul(Af, dot(sub(T, S.P), Af)));
-    if (reduceMotion) {
-      if (turn) { for (const k of ['R', 'F', 'A']) S[k] = planeRot(turn[k], turn.A, turn.v, turn.theta); orthonormalize(); snapFrame(); }
-      S.P = to; dirty = true;
-    } else jump = { from: S.P.slice(), to, t: 0, turn, dur: turn ? 1.1 : 0.6 };
+    startJump({ from: S.P.slice(), to: add(S.P, mul(Af, dot(sub(T, S.P), Af))), t: 0, turn, dur: turn ? 1.1 : 0.6 });
   });
   renderPlanes(); updatePuzzlePanel(); setMode('slice'); syncSolo();
+
+  /* ---------- jumps ---------- */
+  // A jump moves you from `from` to `to`, optionally turning your slice: `turn` is one plane rotation (Face this layer),
+  // `frame` a whole new frame (Diagonal view). With reduced motion it lands at once.
+  function startJump(j) { jump = j; if (reduceMotion) stepJump(0); }
+  function stepJump(dt) {
+    jump.t = reduceMotion ? 1 : Math.min(1, jump.t + dt / (jump.dur || 0.6));
+    const e = ease(jump.t);
+    S.P = lerp(jump.from, jump.to, e);
+    if (jump.frame) {
+      const { from, to } = jump.frame;
+      const M = slerp(frameMat(from), frameMat(to), e);
+      if (M) { S.R = M.slice(0, 4); S.F = M.slice(8, 12); S.A = M.slice(12, 16); } // rows are R, U, F, A
+      else for (const k of ['R', 'F', 'A']) S[k] = lerp(from[k], to[k], e);
+      orthonormalize();
+      if (jump.t >= 1) { S.R = to.R; S.F = to.F; S.A = to.A; }
+    }
+    if (jump.turn) {
+      const T = jump.turn;
+      for (const k of ['R', 'F', 'A']) S[k] = planeRot(T[k], T.A, T.v, T.theta * e);
+      if (jump.t >= 1) { orthonormalize(); snapFrame(); }
+    }
+    dirty = true;
+    if (jump.t >= 1) jump = null;
+  }
 
   /* ---------- loop ---------- */
   function resize() {
@@ -1236,74 +1098,18 @@ function main() {
   new ResizeObserver(resize).observe(view);
   resize();
 
-  const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
   const stackTags = document.getElementById('stack-tags');
+  const drawCompass = createCompass(document.getElementById('compass'));
   let last = performance.now();
-  // Compass: the four world axes as seen from your orbit camera. Each axis is projected into your slice, so an
-  // arrow shrinks as the axis leaves the slice (and as it turns toward the camera). Arrows too short to label get
-  // their label in a row below instead; level, w lies entirely out of the slice and only shows there, as "w⊥".
-  const compass = document.getElementById('compass'), cctx = compass.getContext('2d');
-  const tok = name => css.getPropertyValue(name).trim();
-  const INK = tok('--ink'), C_FONT = '11px ' + tok('--mono'), C_DOT = tok('--muted');
-  const AXES = [['x', 0, INK], ['y', 1, INK], ['z', 2, INK], ['w', 3, tok('--accent')]];
-  const _cv = new THREE.Vector3(), _cm = new THREE.Matrix4();
-  function drawCompass() {
-    const dpr = Math.min(2, window.devicePixelRatio || 1), size = Math.round(compass.clientWidth * dpr);
-    if (compass.width !== size) compass.width = compass.height = size;
-    cctx.setTransform(1, 0, 0, 1, 0, 0); cctx.clearRect(0, 0, size, size);
-    cctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    const mid = compass.clientWidth / 2, len = mid * 0.62;
-    _cm.extractRotation(camera.matrixWorldInverse);
-    cctx.font = C_FONT; cctx.textAlign = 'center'; cctx.textBaseline = 'middle'; cctx.lineCap = 'round';
-    cctx.fillStyle = C_DOT; cctx.globalAlpha = 0.5; cctx.beginPath(); cctx.arc(mid, mid, 2, 0, 7); cctx.fill();
-    const arrows = AXES.map(([name, i, col]) => {
-      const e = [0, 0, 0, 0]; e[i] = 1;
-      const out = Math.abs(dot(e, V.A)); // how far this axis points out of the slice
-      _cv.set(dot(e, V.R), dot(e, V.U), -dot(e, V.F)).applyMatrix4(_cm);
-      return { name, col, out, x: _cv.x, y: -_cv.y, z: _cv.z };
-    }).sort((a, b) => a.z - b.z); // draw far arrows first
-    const stubs = arrows.filter(a => Math.hypot(a.x, a.y) < 0.35).reverse(); // end-on or out of the slice: label them in a row below
-    for (const a of arrows) {
-      const ex = mid + a.x * len, ey = mid + a.y * len;
-      cctx.strokeStyle = cctx.fillStyle = a.col; cctx.globalAlpha = 0.35 + 0.65 * (1 - a.out);
-      cctx.lineWidth = 1.6; cctx.setLineDash(a.out > Math.SQRT1_2 ? [3, 3] : []);
-      cctx.beginPath(); cctx.moveTo(mid, mid); cctx.lineTo(ex, ey); cctx.stroke(); cctx.setLineDash([]);
-      const d = Math.hypot(a.x, a.y), k = stubs.indexOf(a);
-      if (k >= 0) { cctx.globalAlpha = 0.85; cctx.fillText(a.name + (a.out > Math.SQRT1_2 ? '⊥' : '·'), mid + (k - (stubs.length - 1) / 2) * 22, mid + 24); }
-      else cctx.fillText(a.name, ex + (a.x / d) * 9, ey + (a.y / d) * 9);
-    }
-    cctx.globalAlpha = 1;
-  }
 
   function frame(now) {
     const dt = Math.min(0.05, (now - last) / 1000); last = now;
-    for (const code of active.keys()) act(code, dt);
-    for (const [code, el] of Object.entries(keyEls)) el.classList.toggle('on', active.has(code));
-    if (jump && (jump.turn || jump.frame) && [...active.keys()].some(c => c.startsWith('rot'))) jump = null; // manual rotation cancels a turn
-    if (jump) {
-      jump.t = Math.min(1, jump.t + dt / (jump.dur || 0.6));
-      const e = jump.t < 0.5 ? 2 * jump.t * jump.t : 1 - Math.pow(-2 * jump.t + 2, 2) / 2;
-      S.P = lerp(jump.from, jump.to, e);
-      if (jump.frame) {
-        const { from, to } = jump.frame;
-        const M = slerp(frameMat(from), frameMat(to), e);
-        if (M) { S.R = M.slice(0, 4); S.F = M.slice(8, 12); S.A = M.slice(12, 16); } // rows are R, U, F, A
-        else for (const k of ['R', 'F', 'A']) S[k] = lerp(from[k], to[k], e);
-        orthonormalize();
-        if (jump.t >= 1) { S.R = to.R; S.F = to.F; S.A = to.A; }
-      }
-      if (jump.turn) {
-        const T = jump.turn;
-        for (const k of ['R', 'F', 'A']) S[k] = planeRot(T[k], T.A, T.v, T.theta * e);
-        if (jump.t >= 1) { orthonormalize(); snapFrame(); }
-      }
-      dirty = true;
-      if (jump.t >= 1) jump = null;
-    }
-    if (VOL.t !== +VOL.on) {
-      VOL.t = VOL.on ? Math.min(1, VOL.t + dt) : Math.max(0, VOL.t - dt); // one second each way
-      dirty = true;
-    }
+    keys.apply(dt);
+    if (jump && (jump.turn || jump.frame) && keys.held().some(c => c.startsWith('rot'))) jump = null; // manual rotation cancels a turn
+    if (jump) stepJump(dt);
+    const volT = VOL.t;
+    you.step(dt, reduceMotion);   // volume view's tween, one second each way
+    if (VOL.t !== volT) dirty = true;
     if (!RK.anim && RK.queue.length) {
       const move = RK.queue.shift();
       RK.anim = { move, t: 0, angle: 0, dur: reduceMotion ? 0 : move.fast ? 0.09 : 0.28 };
@@ -1311,8 +1117,7 @@ function main() {
     if (RK.anim) {
       const a = RK.anim;
       a.t = a.dur ? Math.min(1, a.t + dt / a.dur) : 1;
-      const e = a.t < 0.5 ? 2 * a.t * a.t : 1 - Math.pow(-2 * a.t + 2, 2) / 2;
-      a.angle = a.move.dir * Math.PI / 2 * e;
+      a.angle = a.move.dir * Math.PI / 2 * ease(a.t);
       if (a.t >= 1) { finishTwist(a.move); RK.anim = null; updatePuzzlePanel(); }
       dirty = true;
     }
@@ -1346,24 +1151,15 @@ function main() {
     let tagged = null, best = Infinity;
     if (VIEW.mode === 'stack') for (const o of WORLD) {
       if (o.hidden || !o.stackInfo) continue;
-      const dist = local(o.center).distanceTo(controls.target);
-      if (dist < best) { best = dist; tagged = o; }
+      const at = local(o.center), dist = at.distanceTo(controls.target);
+      if (dist < best) { best = dist; tagged = { o, at }; }
     }
-    stackTags.hidden = !tagged;
-    if (tagged) {
-      const lc = local(tagged.center), w = view.clientWidth, h = view.clientHeight, si = tagged.stackInfo;
-      [...stackTags.children].forEach((el, k) => {
-        const v = new THREE.Vector3(lc.x + (k - 1) * si.spacing, lc.y + si.bottom, lc.z).project(camera);
-        el.textContent = si.labels[k];
-        el.hidden = v.z > 1;
-        el.style.transform = `translate(${((v.x + 1) / 2 * w).toFixed(1)}px, ${((1 - v.y) / 2 * h).toFixed(1)}px) translate(-50%, 0)`;
-      });
-    }
+    placeStackTags(stackTags, view, camera, tagged?.at, tagged?.o.stackInfo);
     for (const o of WORLD) if (o.globe) {
       o.uni.uPV.value.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
       if (!reduceMotion) o.uni.uSpin.value += dt * 0.12;
     }
-    drawCompass();
+    drawCompass(V, camera);
     renderer.render(scene, camera);
     requestAnimationFrame(frame);
   }

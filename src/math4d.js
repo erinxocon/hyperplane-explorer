@@ -5,6 +5,8 @@ export const mul = (a, s) => [a[0]*s, a[1]*s, a[2]*s, a[3]*s];
 export const dot = (a, b) => a[0]*b[0] + a[1]*b[1] + a[2]*b[2] + a[3]*b[3];
 export const norm = a => mul(a, 1 / Math.hypot(...a));
 export const lerp = (a, b, t) => add(a, mul(sub(b, a), t));
+// Ease in and out (quadratic), for tweens: t in [0, 1] -> [0, 1].
+export const ease = t => (t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2);
 
 // 4x4 matrices, row-major flat arrays
 export const ident = () => [1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1];

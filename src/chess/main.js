@@ -5,6 +5,9 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { WHITE, BLACK, QUEEN, coords, newGame, legalMoves, play, undo, gameState, kingAt } from './rules.js';
 import { PIECE_GEOMETRY, STAND, buildStand, buildFrame } from './models.js';
+import { ease } from '../math4d.js';
+import { toScreen } from '../hud.js';
+import { tok } from '../scenery.js';
 import '../styles.css';
 import './chess.css';
 
@@ -26,7 +29,6 @@ const FRAMES = [[3, 1, 2], [0, 3, 2], [0, 1, 3], [0, 1, 2]];
 
 function main() {
   const view = document.getElementById('view');
-  const css = getComputedStyle(document.documentElement), tok = n => css.getPropertyValue(n).trim();
   const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
   // mode: slice | stack | shadow. ana: the board axis your slice is perpendicular to. layer: where along it you are.
@@ -47,7 +49,9 @@ function main() {
   const scene = new THREE.Scene(), BG = new THREE.Color(tok('--ground'));
   scene.background = BG;
   scene.fog = new THREE.Fog(BG, 34, 80);
-  scene.environment = new THREE.PMREMGenerator(renderer).fromScene(new RoomEnvironment(), 0.04).texture;   // reflections for the chrome
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;   // reflections for the chrome
+  pmrem.dispose();
   scene.add(new THREE.HemisphereLight(0xdfe7ff, 0x1a2230, 0.3));
   const sun = new THREE.DirectionalLight(0xffffff, 0.55);
   sun.position.set(5, 14, 9);
@@ -83,9 +87,10 @@ function main() {
     Object.assign(o.userData, { cell: i, set, n: set.userData.cells.push(i) - 1 });
     return o;
   });
-  // Each 3D board has both the tri-d stand and the plain frame; the one not chosen shrinks away.
+  // Each 3D board has both the tri-d stand and the plain frame; the one not chosen shrinks away. All four share geometry.
+  const TREK = buildStand({ ...STYLES.trek, chrome: MAT.chrome, glass: MAT.glass }), PLAIN = buildFrame({ ...STYLES.plain, line: MAT.frame });
   const stands = [0, 1, 2, 3].flatMap(k => {
-    const trek = buildStand({ ...STYLES.trek, chrome: MAT.chrome, glass: MAT.glass }), plain = buildFrame({ ...STYLES.plain, line: MAT.frame });
+    const trek = k ? TREK.clone() : TREK, plain = k ? PLAIN.clone() : PLAIN;
     trek.userData = { tower: k, style: 'trek' };
     plain.userData = { tower: k, style: 'plain' };
     scene.add(trek, plain);
@@ -169,7 +174,7 @@ function main() {
     const see = S.mode === 'shadow';
     for (const m of [MAT.light, MAT.dark]) if (m.transparent !== see) { m.transparent = see; m.opacity = see ? 0.45 : 1; m.depthWrite = !see; m.needsUpdate = true; }
   }
-  function ease(dt) {
+  function settle(dt) {
     const k = reduceMotion ? 1 : 1 - Math.exp(-dt * 9);
     for (const o of movers()) {
       const t = o.userData.target;
@@ -379,7 +384,7 @@ function main() {
       _v.set(0, S.stand === 'trek' ? STAND.foot - 0.5 : -0.8, 2.4).multiplyScalar(g.scale.x).add(g.position).project(camera);
       tag.textContent = `${AXES[S.ana]} ${k + 1}`;
       tag.classList.toggle('here', k === S.layer);
-      tag.style.transform = `translate(${((_v.x + 1) / 2 * w).toFixed(1)}px, ${((1 - _v.y) / 2 * h).toFixed(1)}px) translate(-50%, 0)`;
+      tag.style.transform = toScreen(_v, w, h);
     });
   }
 
@@ -404,11 +409,11 @@ function main() {
   function frame(now) {
     const dt = Math.min(0.05, (now - last) / 1000);
     last = now;
-    ease(dt);
+    settle(dt);
     if (camTween) {
       const ct = camTween;
       ct.t = ct.dur ? Math.min(1, ct.t + dt / ct.dur) : 1;
-      const e = ct.t < 0.5 ? 2 * ct.t * ct.t : 1 - Math.pow(-2 * ct.t + 2, 2) / 2;
+      const e = ease(ct.t);
       controls.target.lerpVectors(ct.fromT, ct.toT, e);
       camera.position.lerpVectors(ct.fromP, ct.toP, e);
       if (ct.t >= 1) camTween = null;

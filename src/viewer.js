@@ -2,7 +2,7 @@
 // turn happens in the x–z–w subspace and the floor stays a floor. Drawing reads frame(), which volume view turns 90°
 // in the U–A plane (U -> A, A -> -U) so your slice lies level; moving and turning act on S. This is the explorer's
 // model (see CLAUDE.md), packaged so other pages can share it.
-import { add, sub, mul, dot, norm, lerp } from './math4d.js';
+import { add, sub, mul, dot, norm, lerp, ease } from './math4d.js';
 
 export const START = { P: [0, 0, 0, 0], R: [1, 0, 0, 0], U: [0, 1, 0, 0], F: [0, 0, 1, 0], A: [0, 0, 0, 1] };
 // The keys, as in the explorer: W/A/S/D move, R/F height, E/Q ana/kata, J/L turn, I/K pitch into ana, U/O swing into ana.
@@ -10,7 +10,6 @@ export const KEYS = {
   KeyW: 'move:F:1', KeyS: 'move:F:-1', KeyA: 'move:R:-1', KeyD: 'move:R:1', KeyR: 'move:U:1', KeyF: 'move:U:-1',
   KeyE: 'move:A:1', KeyQ: 'move:A:-1', KeyJ: 'rot:RF:-1', KeyL: 'rot:RF:1', KeyI: 'rot:FA:1', KeyK: 'rot:FA:-1', KeyO: 'rot:RA:1', KeyU: 'rot:RA:-1',
 };
-const ease = t => (t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2);
 const copy = f => JSON.parse(JSON.stringify(f));
 
 export function createViewer({ speed = 2.4, turn = 1 } = {}) {
@@ -39,7 +38,7 @@ export function createViewer({ speed = 2.4, turn = 1 } = {}) {
     const th = ease(v.vol.t) * Math.PI / 2, c = Math.cos(th), s = Math.sin(th), S = v.S;
     return { P: S.P, R: S.R, F: S.F, U: add(mul(S.U, c), mul(S.A, s)), A: sub(mul(S.A, c), mul(S.U, s)) };
   };
-  v.reset = () => { v.S = copy(START); v.jump = null; };
+  v.reset = () => { Object.assign(v.S, copy(START)); v.jump = null; };   // in place: S is the same object for life
   v.jumpTo = to => { v.jump = { from: v.S.P.slice(), to, t: 0 }; };
   // Advance a jump and the volume-view tween (one second each way) by dt; `instant` skips the animation.
   v.step = (dt, instant = false) => {
@@ -88,5 +87,6 @@ export function bindControls(v, root = document) {
       for (const c of active.keys()) v.act(c, dt);
       for (const [c, el] of Object.entries(keyEls)) el.classList.toggle('on', active.has(c));
     },
+    held: () => [...active.keys()],   // the act codes being held now
   };
 }

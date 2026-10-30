@@ -1,15 +1,12 @@
 import { test, expect } from '@playwright/test';
+import { watchErrors } from './errors.js';
 
 // Loads the 4D spinning cat with YouTube blocked (the test can't depend on it), presses play, walks, steps ana, taps
 // the TV in the ruler, swings the slice so the screen is cut to a band, tries every view and volume view, resets, and
 // fails on any page error. Reduced motion makes jumps and volume view instant, so the steps don't wait on frame rate.
 test('4D spinning cat: walk, tilt, every view', async ({ page }) => {
   test.setTimeout(180_000);   // software GL is slow to draw this scene
-  const errors = [];
-  const external = url => /fonts\.(googleapis|gstatic)\.com|youtube|ytimg|googlevideo/.test(url);
-  page.on('pageerror', e => errors.push(String(e)));
-  page.on('console', m => { if (m.type() === 'error' && !m.text().startsWith('Failed to load resource')) errors.push(m.text()); });
-  page.on('requestfailed', r => { if (!external(r.url())) errors.push(`request failed: ${r.url()}`); });
+  const errors = watchErrors(page, /fonts\.(googleapis|gstatic)\.com|youtube|ytimg|googlevideo/);
   await page.route(/youtube|ytimg|googlevideo/, r => r.abort());
   await page.emulateMedia({ reducedMotion: 'reduce' });
 
