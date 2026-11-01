@@ -9,12 +9,12 @@
 // ever drawn over it.
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
-import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { CSS3DRenderer, CSS3DObject } from 'three/examples/jsm/renderers/CSS3DRenderer.js';
 import { ConvexGeometry } from 'three/examples/jsm/geometries/ConvexGeometry.js';
 import { add, mul, dot, ease, rot, mm, mv } from '../math4d.js';
-import { tesseract } from '../shapes.js';
+import { tesseract } from '../shapes/shapes.js';
 import { createViewer, bindControls } from '../viewer.js';
+import { $, reduceMotion, createRenderer, roomEnvironment, press, onButton, VIEW_KEYS, cameraTween } from '../utils.js';
 import { tok, createFloor, createMarker, depthShade, depthTint, tubeMatrix, knobMatrix } from '../scenery.js';
 import { fmt, createReadout, createCompass, drawRulerRow, stackLabels, stackOffs, placeStackTags } from '../hud.js';
 import { buildCat, HEIGHT } from './model.js';
@@ -61,25 +61,19 @@ const VIEW_DESC = {
 const VOL_DESC = ' <b>Volume view is on:</b> your slice lies level, so here ana means down and kata means up.';
 
 function main() {
-  const view = document.getElementById('view'), $ = id => document.getElementById(id);
-  const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const view = $('view');
   const ST = { spin: 'both', mode: 'slice', speed: 1 };
   const you = createViewer(), keys = bindControls(you);
   let want = false, angle = 0, rate = 0, antT = 0;
 
   /* ---------- scene ---------- */
-  let renderer;
-  try { renderer = new THREE.WebGLRenderer({ antialias: true }); }
-  catch (e) { view.insertAdjacentHTML('beforeend', '<div class="err">WebGL is not available in this browser, so the cat cannot be drawn.</div>'); return; }
-  renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+  const renderer = createRenderer(view, 'the cat');
+  if (!renderer) return;
   renderer.localClippingEnabled = true;
-  view.prepend(renderer.domElement);
   const BG = new THREE.Color(tok('--ground')), scene = new THREE.Scene();
   scene.background = BG;
   scene.fog = new THREE.Fog(BG, 18, 46);
-  const pmrem = new THREE.PMREMGenerator(renderer);
-  scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
-  pmrem.dispose();
+  roomEnvironment(renderer, scene);
   scene.add(new THREE.HemisphereLight(0xdfe7ff, 0x1a2230, 0.4));
   const sun = new THREE.DirectionalLight(0xffffff, 0.7);
   sun.position.set(4, 9, 6);
@@ -91,8 +85,7 @@ function main() {
   controls.target.copy(CAM.at);
   controls.enableDamping = true;
   controls.maxDistance = 40; controls.minDistance = 1.5;
-  let camTween = null;
-  controls.addEventListener('start', () => { camTween = null; });
+  const cam = cameraTween(camera, controls);
 
   // the floor, the 4D hyperplane y = FLOOR_Y cut by your slice, checkered on world (x, z, w) as in the explorer; and you
   const floor = createFloor(BG, [10, 32, -6]);
@@ -393,13 +386,8 @@ function main() {
   playBtn.addEventListener('click', () => setWant(!want));
 
   /* ---------- views, spins and keys ---------- */
-  const press = (id, v) => { for (const b of $(id).children) b.setAttribute('aria-pressed', String(b.dataset.v === v)); };
-  function dolly(f) {
-    const toT = controls.target.clone(), toP = toT.clone().add(camera.position.clone().sub(toT).multiplyScalar(f));
-    camTween = { t: 0, dur: reduceMotion ? 0 : 0.7, fromT: toT.clone(), fromP: camera.position.clone(), to: [toT, toP] };
-  }
   function setMode(m) {
-    if (m !== ST.mode && (m === 'stack' || ST.mode === 'stack')) dolly(m === 'stack' ? 1.5 : 1 / 1.5);
+    if (m !== ST.mode && (m === 'stack' || ST.mode === 'stack')) cam.dolly(m === 'stack' ? 1.5 : 1 / 1.5);
     ST.mode = m;
     press('view-mode', m);
     $('view-desc').innerHTML = VIEW_DESC[m] + (you.vol.on ? VOL_DESC : '');
@@ -414,14 +402,13 @@ function main() {
     setMode(ST.mode);
   }
   volBox.addEventListener('change', () => setVolume(volBox.checked));
-  $('spin').addEventListener('click', e => { const b = e.target.closest('button'); if (b) setSpin(b.dataset.v); });
-  $('view-mode').addEventListener('click', e => { const b = e.target.closest('button'); if (b) setMode(b.dataset.v); });
+  onButton('spin', b => setSpin(b.dataset.v));
+  onButton('view-mode', b => setMode(b.dataset.v));
   $('speed').addEventListener('input', e => { ST.speed = +e.target.value; });
   $('reset').addEventListener('click', () => you.reset());
   window.addEventListener('keydown', e => {
     if (e.metaKey || e.ctrlKey || e.altKey) return;
-    const m = { Digit1: 'slice', Digit2: 'stack', Digit3: 'shadow' }[e.code];
-    if (m) setMode(m);
+    if (VIEW_KEYS[e.code]) setMode(VIEW_KEYS[e.code]);
     else if (e.code === 'KeyV') { if (!e.repeat) setVolume(!you.vol.on); }
     else if (e.code === 'Space' && !e.target.closest('button, input')) { e.preventDefault(); setWant(!want); }
   });
@@ -457,13 +444,7 @@ function main() {
     angle = (angle + rate * 2 * Math.PI * dt) % (6 * Math.PI);   // 3 turns: a whole period of Both
     antT += dt * (reduceMotion ? 0.05 : 0.25) + rate * dt;
     rebuild();
-    if (camTween) {
-      const ct = camTween;
-      ct.t = ct.dur ? Math.min(1, ct.t + dt / ct.dur) : 1;
-      controls.target.lerpVectors(ct.fromT, ct.to[0], ease(ct.t));
-      camera.position.lerpVectors(ct.fromP, ct.to[1], ease(ct.t));
-      if (ct.t >= 1) camTween = null;
-    }
+    cam.step(dt);
     controls.update();
     camera.updateMatrixWorld();
     // label the stack of whichever object sits closest to where you're looking

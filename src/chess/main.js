@@ -2,12 +2,11 @@
 // after tri-dimensional chess. The rules are in rules.js; the computer opponent (ai.js) runs in worker.js.
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
-import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { WHITE, BLACK, QUEEN, coords, newGame, legalMoves, play, undo, gameState, kingAt } from './rules.js';
 import { PIECE_GEOMETRY, STAND, buildStand, buildFrame } from './models.js';
-import { ease } from '../math4d.js';
 import { toScreen } from '../hud.js';
 import { tok } from '../scenery.js';
+import { $, reduceMotion, createRenderer, roomEnvironment, press, onButton, VIEW_KEYS, cameraTween } from '../utils.js';
 import '../styles.css';
 import './chess.css';
 
@@ -28,8 +27,7 @@ const middle = st => new THREE.Vector3(0, 1.5 * st.level, -1.5 * st.stagger);   
 const FRAMES = [[3, 1, 2], [0, 3, 2], [0, 1, 3], [0, 1, 2]];
 
 function main() {
-  const view = document.getElementById('view');
-  const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const view = $('view');
 
   // mode: slice | stack | shadow. ana: the board axis your slice is perpendicular to. layer: where along it you are.
   // stand: trek | plain, remembered per browser.
@@ -41,17 +39,12 @@ function main() {
   let selected = -1, targets = new Map(), hover = -1, thinking = false, token = 0;
 
   /* ---------- scene ---------- */
-  let renderer;
-  try { renderer = new THREE.WebGLRenderer({ antialias: true }); }
-  catch (e) { view.insertAdjacentHTML('beforeend', '<div class="err">WebGL is not available in this browser, so the board cannot be drawn.</div>'); return; }
-  renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
-  view.prepend(renderer.domElement);
+  const renderer = createRenderer(view, 'the board');
+  if (!renderer) return;
   const scene = new THREE.Scene(), BG = new THREE.Color(tok('--ground'));
   scene.background = BG;
   scene.fog = new THREE.Fog(BG, 34, 80);
-  const pmrem = new THREE.PMREMGenerator(renderer);
-  scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;   // reflections for the chrome
-  pmrem.dispose();
+  roomEnvironment(renderer, scene);   // reflections for the chrome
   scene.add(new THREE.HemisphereLight(0xdfe7ff, 0x1a2230, 0.3));
   const sun = new THREE.DirectionalLight(0xffffff, 0.55);
   sun.position.set(5, 14, 9);
@@ -59,8 +52,9 @@ function main() {
   const camera = new THREE.PerspectiveCamera(40, 1, 0.1, 200);
   const controls = new OrbitControls(camera, renderer.domElement);
   controls.enableDamping = true; controls.minDistance = 3; controls.maxDistance = 70;
-  let orbited = false, camTween = null;
-  controls.addEventListener('start', () => { orbited = true; camTween = null; });
+  const cam = cameraTween(camera, controls);
+  let orbited = false;
+  controls.addEventListener('start', () => { orbited = true; });
 
   const std = (c, o) => new THREE.MeshStandardMaterial({ color: new THREE.Color(tok(c)), ...o });
   const flat = (c, opacity) => new THREE.MeshBasicMaterial({ color: new THREE.Color(tok(c)), transparent: true, opacity, depthWrite: false, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
@@ -247,7 +241,6 @@ function main() {
   }
 
   /* ---------- panel ---------- */
-  const $ = id => document.getElementById(id);
   const hudStatus = $('hud-status'), hudHover = $('hud-hover'), stateEl = $('state');
   const layerBtns = [...$('layers').children];
   layerBtns.forEach(b => { b.innerHTML = '<span></span><span class="badge"></span>'; });
@@ -256,7 +249,6 @@ function main() {
     stack: '<b>Stack</b> shows all four 3D boards side by side, kata on the left and ana on the right, like the panels of a 4D scan. The gaps between them are only for display: neighboring boards are one step apart.',
     shadow: '<b>Shadow</b> is a 4D perspective projection: the eye is ana of the board, so the four 3D boards nest inside each other, kata smallest in the middle and ana largest outside.',
   };
-  const press = (id, v) => { for (const b of $(id).children) b.setAttribute('aria-pressed', String(b.dataset.v === v)); };
   function refresh() {
     const side = game.turn === WHITE ? 'White' : 'Black', other = game.turn === WHITE ? 'Black' : 'White';
     const text = state === 'checkmate' ? `Checkmate · ${other} wins` : state === 'stalemate' ? 'Stalemate · draw' : state === 'draw' ? 'Draw'
@@ -317,9 +309,9 @@ function main() {
 
   function setMode(m) { if (m === S.mode) return; S.mode = m; refresh(); frameCamera(); }
   function setLayer(k) { S.layer = Math.max(0, Math.min(3, k)); refresh(); }
-  $('view-mode').addEventListener('click', e => { const b = e.target.closest('button'); if (b) setMode(b.dataset.v); });
-  $('ana').addEventListener('click', e => { const b = e.target.closest('button'); if (b) { S.ana = +b.dataset.v; refresh(); } });
-  $('layers').addEventListener('click', e => { const b = e.target.closest('button'); if (b) setLayer(+b.dataset.v); });
+  onButton('view-mode', b => setMode(b.dataset.v));
+  onButton('ana', b => { S.ana = +b.dataset.v; refresh(); });
+  onButton('layers', b => setLayer(+b.dataset.v));
   $('opponent').addEventListener('click', e => {
     const b = e.target.closest('button');
     if (!b) return;
@@ -339,8 +331,7 @@ function main() {
   $('undo').addEventListener('click', takeBack);
   window.addEventListener('keydown', e => {
     if (e.metaKey || e.ctrlKey || e.altKey) return;
-    const m = { Digit1: 'slice', Digit2: 'stack', Digit3: 'shadow' }[e.code];
-    if (m) setMode(m);
+    if (VIEW_KEYS[e.code]) setMode(VIEW_KEYS[e.code]);
     else if (e.code === 'KeyE') setLayer(S.layer + 1);
     else if (e.code === 'KeyQ') setLayer(S.layer - 1);
     else if (e.code === 'Escape') click(-1);
@@ -364,8 +355,8 @@ function main() {
   function frameCamera(dur = 0.9) {
     const F = FRAMING[S.stand][S.mode], mid = middle(style()), at = new THREE.Vector3(F.at[0], mid.y + F.at[1], mid.z), dir = new THREE.Vector3(...F.dir).normalize();
     const t = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)), d = 1.06 * Math.max(F.fit[0] / (t * camera.aspect), F.fit[1] / t);
-    camTween = { t: 0, dur: reduceMotion ? 0 : dur, fromT: controls.target.clone(), fromP: camera.position.clone(), toT: at, toP: at.clone().addScaledVector(dir, d) };
-    if (!camTween.dur) { controls.target.copy(at); camera.position.copy(camTween.toP); controls.update(); camTween = null; }
+    cam.go([at, at.clone().addScaledVector(dir, d)], dur);
+    if (!dur || reduceMotion) { cam.step(0); controls.update(); }   // there at once, before the next frame
   }
   function resize() {
     const w = view.clientWidth, h = view.clientHeight;
@@ -410,14 +401,7 @@ function main() {
     const dt = Math.min(0.05, (now - last) / 1000);
     last = now;
     settle(dt);
-    if (camTween) {
-      const ct = camTween;
-      ct.t = ct.dur ? Math.min(1, ct.t + dt / ct.dur) : 1;
-      const e = ease(ct.t);
-      controls.target.lerpVectors(ct.fromT, ct.toT, e);
-      camera.position.lerpVectors(ct.fromP, ct.toP, e);
-      if (ct.t >= 1) camTween = null;
-    }
+    cam.step(dt);
     controls.update();
     placeTags();
     renderer.render(scene, camera);
