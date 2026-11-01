@@ -2,8 +2,9 @@ import { test, expect } from '@playwright/test';
 import { watchErrors } from './errors.js';
 
 // Loads the 4D spinning cat with YouTube blocked (the test can't depend on it), presses play, walks, steps ana, taps
-// the TV in the ruler, swings the slice so the screen is cut to a band, tries every view and volume view, resets, and
-// fails on any page error. Reduced motion makes jumps and volume view instant, so the steps don't wait on frame rate.
+// the TV in the ruler, swings the slice so the screen is cut to a band, tries every view and volume view, resets, tries
+// every spin, and fails on any page error. Reduced motion makes jumps and volume view instant, so the steps don't wait
+// on frame rate; window.cat4d.pose stops the cat at a set pose for the screenshots that need one.
 test('4D spinning cat: walk, tilt, every view', async ({ page }) => {
   test.setTimeout(180_000);   // software GL is slow to draw this scene
   const errors = watchErrors(page, /fonts\.(googleapis|gstatic)\.com|youtube|ytimg|googlevideo/);
@@ -44,5 +45,18 @@ test('4D spinning cat: walk, tilt, every view', async ({ page }) => {
   await page.click('#reset');
   await expect(page.locator('#pw')).toHaveText('0.00');
   await expect(page.locator('#pz')).toHaveText('0.00');
+
+  // every spin for a moment, level with the cat; then poses that show its roundness in w: a quarter somersault, and
+  // Pass through partway out of your slice
+  for (const v of ['w', 'pass', 'double', 'opposite', 'knot', 'flip', 'y']) {
+    await page.click(`#spin-${v}`);
+    await expect(page.locator(`#spin-${v}`)).toHaveAttribute('aria-pressed', 'true');
+    await page.waitForTimeout(300);
+  }
+  for (const [spin, deg] of [['flip', 90], ['pass', 45], ['w', 90]]) {
+    await page.evaluate(([s, d]) => window.cat4d.pose(s, d), [spin, deg]);
+    await page.waitForTimeout(400);
+    await page.screenshot({ path: `test-results/cat-${spin}-${deg}.png` });
+  }
   expect(errors).toEqual([]);
 });

@@ -24,9 +24,10 @@ The world holds a tesseract, 24-cell, 600-cell, 16-cell, 5-cell, 6,6-duoprism, a
 
 ## 4D spinning cat
 
-`cat.html` is a third page: the OIIA OIIA cat, a brown tabby a little thick in w, spinning in 4D in front of a 4D TV that plays the song from YouTube. You walk it exactly as you walk the explorer, with the same keys, views and volume view.
+`cat.html` is a third page: the OIIA OIIA cat, a grey-brown tabby as round in w as it is in 3D, spinning in 4D in front of a 4D TV that plays the song from YouTube. You walk it exactly as you walk the explorer, with the same keys, views and volume view.
 
-- **Spins**: the meme spin around y, a turn through w (half a turn on, the cat comes back as its mirror image: its tail curls the other way and its white sock is on the other paw), both at once, or a double rotation.
+- **The cat** is as round in w as it is in 3D: every part turns into w around a circle about its own middle, so a leg is a round 4D tube. Step ana or kata and it thins, whiskers, ears and legs first; in Stack its side panels are thinner cats.
+- **Spins**: the meme spin around y; a turn through w (half a turn on, the cat comes back as its mirror image: its tail curls the other way and its white sock is on the other paw); both at once; Pass through, which carries it along w through your slice; two double rotations, mirror images of each other; a 2 : 3 double rotation, along trefoil-shaped paths; and a somersault through w, which leaves it upside down and mirrored.
 - **The TV** is a box thick in w. In Shadow it shows as a box in a box joined at the corners, with a small tesseract spinning on its antenna.
 - **The picture** is YouTube's own player, laid on the screen with CSS 3D transforms through the same 4D maps as everything else. Your slice cuts it: swing sideways into ana (U, O) and it narrows to a stretched band; step ana or kata and the band slides across. Nothing 3D is ever drawn over it.
 - `cat.html?v=<video id>` plays a different YouTube video.

@@ -1,7 +1,9 @@
-// 4D spinning cat: the OIIA meme cat, thick in w, spinning in 4D in front of a 4D TV that plays "OIIA OIIA" from
+// 4D spinning cat: the OIIA meme cat, round in w, spinning in 4D in front of a 4D TV that plays "OIIA OIIA" from
 // YouTube. You walk their world as in the explorer: viewer.js is your frame and controls, and everything is drawn in
-// your display frame V (volume view turns it). The cat and the TV are 3D shapes thickened along w. Slice and Stack cut
-// them with thickSlice, an affine map plus a slab (slice4d.js); Shadow projects them from an eye ana of each.
+// your display frame V (volume view turns it). The cat is as round in w as it is in 3D (model.js); Slice and Stack cut
+// it with roundCutter, and Shadow draws three of its layers in w. The TV is a 3D shape
+// thickened along w, cut with thickSlice, an affine map plus a slab (both in slice4d.js). Shadow projects each from an
+// eye ana of it.
 // The TV's picture is the YouTube player itself, laid on the screen by CSS3DRenderer through the same 4D maps: cut to
 // the part of the screen inside your slice, or projected in Shadow. Its layer is above the canvas, so no 3D object is
 // ever drawn over it.
@@ -14,37 +16,47 @@ import { add, mul, dot, ease, rot, mm, mv } from '../math4d.js';
 import { tesseract } from '../shapes.js';
 import { createViewer, bindControls } from '../viewer.js';
 import { tok, createFloor, createMarker, depthShade, depthTint, tubeMatrix, knobMatrix } from '../scenery.js';
-import { createReadout, createCompass, drawRulerRow, stackLabels, stackOffs, placeStackTags } from '../hud.js';
+import { fmt, createReadout, createCompass, drawRulerRow, stackLabels, stackOffs, placeStackTags } from '../hud.js';
 import { buildCat, HEIGHT } from './model.js';
 import { furMaterial } from './fur.js';
-import { inView, thickSlice, screenSlice, screenShadow } from './slice4d.js';
+import { inView, thickSlice, screenSlice, screenShadow, roundCutter, roundRange, roundLayer } from './slice4d.js';
 import { buildTV, TV } from './tv.js';
 import '../styles.css';
 import './cat.css';
 
-const FLOOR_Y = -2.4, CAT_W = 0.6, EYE_CAT = 4, EYE_TV = 4.5, ANT = 0.3;   // CAT_W: the cat's half-thickness in w
+const FLOOR_Y = -2.4, EYE_CAT = 4, EYE_TV = 4.5, ANT = 0.3, DRIFT = 1.1;   // DRIFT: how far Pass through takes the cat along w
 // Both face where you start: their own +z points along world −z.
 const FACE = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, -1, 0, 0, 0, 0, 1];
 const CAT_AT = [0, FLOOR_Y + HEIGHT / 2 + 0.02, 5, 0], TV_AT = [0, 0.9, 9.5, 0];
 const DEFAULT_VIDEO = '2TBTJL46rg8';   // "OIIA OIIA (Spinning Cat)" by W&W, from the W&W - Topic channel
 const VIDEO = (new URLSearchParams(location.search).get('v') || '').match(/^[\w-]{11}$/)?.[0] || DEFAULT_VIDEO;
-// Each spin is a 4D rotation by angle t in the cat's own coordinates; rot(i, j, t) turns axis i toward axis j.
+// Each spin is a 4D rotation by angle t in the cat's own coordinates; rot(i, j, t) turns axis i toward axis j. Pass
+// through also moves it along w (drift). Every spin is back where it started after three turns, the loop's period.
+// label(degrees, total degrees, drift) is the readout over the view.
 const SPINS = {
   y: { R: t => rot(0, 2, t), label: t => `x–z turn ${t}°` },
   w: { R: t => rot(0, 3, t), label: t => `x–w turn ${t}°` },
   both: { R: t => mm(rot(0, 3, t / 3), rot(0, 2, t)), label: (t, r) => `x–z turn ${t}° · x–w turn ${Math.round(r / 3) % 360}°` },
+  pass: { R: t => rot(0, 2, t), drift: t => DRIFT * Math.sin(t / 3), label: (t, r, d) => `x–z turn ${t}° · w ${fmt(d)}` },
   double: { R: t => mm(rot(0, 2, t), rot(1, 3, t)), label: t => `x–z and y–w turns ${t}°` },
+  opposite: { R: t => mm(rot(0, 2, t), rot(1, 3, -t)), label: t => `x–z turn ${t}° · y–w turn ${(360 - t) % 360}°` },
+  knot: { R: t => mm(rot(0, 2, t), rot(1, 3, 2 * t / 3)), label: (t, r) => `x–z turn ${t}° · y–w turn ${Math.round(2 * r / 3) % 360}°` },
+  flip: { R: t => rot(1, 3, t), label: t => `y–w turn ${t}°` },
 };
 const SPIN_DESC = {
   y: '<b>3D</b> spins it around y, in the x–z plane: the meme spin. Nothing leaves your slice, so standing level with it you see the whole cat.',
-  w: '<b>Through w</b> turns it in the x–w plane. Its side swings out of your slice: Slice catches a thinner band of it, stretched, until it is edge-on, and Shadow flattens it. Half a turn on, it comes back mirrored: its tail curls the other way and the white sock is on its other front paw.',
+  w: '<b>Through w</b> turns it in the x–w plane. Its side swings out of your slice, so you see a band of it around its middle, stretched sideways. A quarter turn on, your slice cuts it lengthwise down the middle: its side view, filled out by its roundness in w. Half a turn on, it comes back mirrored: its tail curls the other way and the white sock is on its other front paw.',
   both: '<b>Both</b> is the meme spin plus a turn through w at a third of the speed, so it keeps flipping into its mirror image.',
+  pass: '<b>Pass through</b> keeps the meme spin and moves the cat along w, through your slice and out the other side. It is round in w, so it grows from nothing: first the middle of its body, then its head, legs, tail, eyes and ears, and its whiskers last. Then it shrinks away the same way, and comes back from the other side.',
   double: '<b>Double</b> turns it in the x–z and y–w planes at once, at the same rate. No point of the cat stays still, which no 3D spin can do.',
+  opposite: '<b>Opposite</b> is Double with its y–w turn run backwards. The two are mirror images of each other, and no turning makes one into the other: in 4D, double rotations at equal rates come in two hands, like left and right. Nothing in 3D works like this.',
+  knot: '<b>2 : 3</b> turns x–z three times while y–w turns twice, so it takes all three turns to come back. Most points of the cat run along a path shaped like a trefoil knot. In 4D any knot can be untied, so it is only knot-shaped.',
+  flip: '<b>Somersault</b> turns it in the y–w plane, so its height tips into w. A quarter turn on, your slice cuts it level through its middle, filled out up and down by its roundness in w. Half a turn on it is upside down and mirrored, a pose no 3D turn can reach.',
 };
 const VIEW_DESC = {
-  slice: '<b>Slice</b> is what a 3D being in your hyperplane sees. The cat is 1.2 thick in w and the TV 1.4, so level with them you see both whole. Tilt your slice into ana, or turn the cat through w, and you see a band of each, stretched, with flat faces where your slice cuts through. The picture on the TV is cut the same way: swing sideways into ana (U, O) and it narrows to a band; step ana or kata to slide the band across.',
+  slice: '<b>Slice</b> is what a 3D being in your hyperplane sees. The cat is as round in w as it is in 3D: about 1.1 through its body, 0.7 through its head and 0.25 through a leg. The TV is a box 1.4 thick. Level with their middles you see both whole. Step ana or kata and the cat thins, its whiskers, ears, tail and legs going first, while the TV stays whole until you leave it. Tilt your slice into ana, or turn the cat through w, and you see the cat stretched and the TV as a band, with flat faces where your slice cuts through it. The picture on the TV is cut the same way: swing sideways into ana (U, O) and it narrows to a band; step ana or kata to slide the band across.',
   stack: '<b>Stack</b> cuts the cat and the TV with three parallel hyperplanes each, a quarter of their extent along ana apart, kata on the left, laid side by side. The sideways gaps are only for display. The picture shows on the middle TV.',
-  shadow: '<b>Shadow</b> is a 4D perspective projection from an eye ana of each object. The TV’s 4D box shows as a box in a box joined at the corners, and its screen, a rectangle times the thickness, as a frustum; the picture sits on its middle layer. Parts further kata are smaller, dimmer and bluer, parts nearer the eye bigger, brighter and warmer.',
+  shadow: '<b>Shadow</b> is a 4D perspective projection from an eye ana of each object. The cat shows three of its layers in w: its middle, and see-through thinner ones kata and ana of it. The TV’s 4D box shows as a box in a box joined at the corners, and its screen, a rectangle times the thickness, as a frustum; the picture sits on its middle layer. Parts further kata are smaller, dimmer and bluer, parts nearer the eye bigger, brighter and warmer.',
 };
 const VOL_DESC = ' <b>Volume view is on:</b> your slice lies level, so here ana means down and kata means up.';
 
@@ -86,8 +98,8 @@ function main() {
   const floor = createFloor(BG, [10, 32, -6]);
   scene.add(floor.mesh, createMarker());
 
-  /* ---------- thick bodies: Slice and Stack ---------- */
-  // A 3D shape thickened along w, drawn as three panels (Stack uses all three, Slice the middle one). A panel shows
+  /* ---------- Slice and Stack ---------- */
+  // The TV: a 3D shape thickened along w, drawn as three panels (Stack uses all three, Slice the middle one). A panel shows
   // every piece through one affine map, clipped to the slab, with the pieces' insides in a flat cut color so a cut
   // reads as a solid face. A mirror-image map turns triangles over, so it uses copies wound the other way round.
   const flip = g => { const f = g.clone(), ix = f.index.array; for (let i = 0; i < ix.length; i += 3) [ix[i + 1], ix[i + 2]] = [ix[i + 2], ix[i + 1]]; return f; };
@@ -118,9 +130,43 @@ function main() {
     });
   }
 
+  // The cat, round in w (model.js): each skin point's depth, the radius it turns into w with, and a cutter for its cuts
+  // (slice4d.js). Three cut meshes, like the TV's panels; each is cut again only when its cut changes.
   const fur = Object.fromEntries(['dark', 'base', 'light', 'cream', 'white', 'iris', 'pupil', 'nose', 'ear'].map(k => [k, tok('--fur-' + k)]));
-  const cat = buildCat(), base = cat.getAttribute('position').array;
-  const catPanels = thickBody([{ geo: cat, material: o => furMaterial(fur, o) }], new THREE.Color(tok('--cut')));
+  const cat = buildCat(), CA = k => cat.getAttribute(k), base = CA('position').array;
+  const round = { s: CA('catPos').array, n: CA('normal').array, r: CA('depth').array, tris: cat.index.array };
+  const CARRY = ['catPos', 'anchor', 'region', 'part'];
+  const cutter = roundCutter(round, CARRY.map(k => ({ array: CA(k).array, size: CA(k).itemSize })));
+  const catMat = furMaterial(fur), catCuts = [0, 1, 2].map(() => ({ out: cutter.output(), mesh: null, key: '' }));
+  function cutMesh(c) {   // a mesh on c's buffers, made again when they grow
+    const o = c.out, g = new THREE.BufferGeometry(), dyn = (a, size) => new THREE.BufferAttribute(a, size).setUsage(THREE.DynamicDrawUsage);
+    g.setAttribute('position', dyn(o.pos, 3));
+    g.setAttribute('normal', dyn(o.nrm, 3));
+    CARRY.forEach((k, j) => g.setAttribute(k, dyn(o.carried[j], CA(k).itemSize)));
+    g.setAttribute('shade', new THREE.BufferAttribute(new Float32Array(4 * o.cap).map((_, i) => +(i % 4 === 3)), 4));   // no tint
+    g.setIndex(dyn(o.index, 1));
+    if (c.mesh) { c.mesh.geometry.dispose(); c.mesh.geometry = g; }
+    else { c.mesh = new THREE.Mesh(g, catMat); c.mesh.frustumCulled = false; scene.add(c.mesh); }
+    o.grown = false;
+  }
+  catCuts.forEach(cutMesh);
+  // show cut c of the cat at `off` ana of its center, seen through G, centered at (x, y, z); off = null hides it
+  function drawCut(c, G, off, x, y, z) {
+    c.mesh.visible = off !== null;
+    if (off === null) return;
+    c.mesh.position.set(x, y, z);
+    const key = G.join() + '|' + off;
+    if (key === c.key) return;   // nothing has moved
+    c.key = key;
+    const o = cutter.cut(G, off, c.out);
+    if (o.grown) cutMesh(c);
+    const g = c.mesh.geometry;
+    g.setDrawRange(0, o.ni);
+    if (!o.ni) return;   // nothing to upload (and an update range of 0 would upload everything)
+    for (const [name, a] of Object.entries(g.attributes)) if (name !== 'shade') { a.updateRange.count = o.nv * a.itemSize; a.needsUpdate = true; }
+    g.index.updateRange.count = o.ni;
+    g.index.needsUpdate = true;
+  }
   let catReach = 0;   // the farthest the cat reaches from its spin axis, for the Stack's spacing
   for (let i = 0; i < base.length; i += 3) catReach = Math.max(catReach, Math.hypot(base[i], base[i + 2]));
 
@@ -136,24 +182,34 @@ function main() {
   const antCuts = [0, 1, 2].map(() => { const m = new THREE.Mesh(new THREE.BufferGeometry(), antMat); scene.add(m); return m; });
 
   /* ---------- Shadow ---------- */
-  // The cat's middle layer, every vertex turned and projected from an eye EYE_CAT ana of its center, tinted by depth.
-  const shadowGeo = cat.clone(), sPos = shadowGeo.getAttribute('position'), sShade = shadowGeo.getAttribute('shade');
-  const catShadow = new THREE.Mesh(shadowGeo, furMaterial(fur, { side: THREE.DoubleSide }));
-  catShadow.frustumCulled = false;
-  scene.add(catShadow);
-  function drawCatShadow(G, at) {
-    const P = sPos.array, Sh = sShade.array;
+  // Three of the cat's layers in w: its middle, and see-through ones at w = ±LAYER_W (only the parts that reach that
+  // far). Every vertex is projected from an eye EYE_CAT ana of the cat's center and tinted by depth.
+  const LAYER_W = 0.25;
+  const catLayers = [0, LAYER_W, -LAYER_W].map(w => {
+    const g = cat.clone(), ix = cat.index.array, reaches = i => round.r[i] >= Math.abs(w);
+    if (w) {
+      const keep = [];
+      for (let t = 0; t < ix.length; t += 3) if (reaches(ix[t]) && reaches(ix[t + 1]) && reaches(ix[t + 2])) keep.push(ix[t], ix[t + 1], ix[t + 2]);
+      g.setIndex(keep);
+    }
+    const mesh = new THREE.Mesh(g, furMaterial(fur, w ? { side: THREE.DoubleSide, transparent: true, opacity: 0.3, depthWrite: false } : { side: THREE.DoubleSide }));
+    mesh.frustumCulled = false;
+    scene.add(mesh);
+    return { mesh, p4: roundLayer(round, w), pos: g.getAttribute('position'), shade: g.getAttribute('shade') };
+  });
+  function drawCatShadow({ mesh, p4, pos, shade }, G, at) {
+    const P = pos.array, Sh = shade.array;
     for (let i = 0, j = 0; i < P.length; i += 3, j += 4) {
-      const x = base[i], y = base[i + 1], z = base[i + 2];
-      const w = G[12] * x + G[13] * y + G[14] * z, k = EYE_CAT / Math.max(0.3 * EYE_CAT, EYE_CAT - w);
-      P[i] = at[0] + (G[0] * x + G[1] * y + G[2] * z) * k;
-      P[i + 1] = at[1] + (G[4] * x + G[5] * y + G[6] * z) * k;
-      P[i + 2] = at[2] + (G[8] * x + G[9] * y + G[10] * z) * k;
-      const t = THREE.MathUtils.clamp((w / (HEIGHT / 2) + 1) / 2, 0, 1), lum = 0.55 + 0.6 * t, { color: tint, amount: m } = depthTint(t);
+      const x = p4[j], y = p4[j + 1], z = p4[j + 2], w = p4[j + 3];
+      const a = G[12] * x + G[13] * y + G[14] * z + G[15] * w, k = EYE_CAT / Math.max(0.3 * EYE_CAT, EYE_CAT - a);
+      P[i] = at[0] + (G[0] * x + G[1] * y + G[2] * z + G[3] * w) * k;
+      P[i + 1] = at[1] + (G[4] * x + G[5] * y + G[6] * z + G[7] * w) * k;
+      P[i + 2] = at[2] + (G[8] * x + G[9] * y + G[10] * z + G[11] * w) * k;
+      const t = THREE.MathUtils.clamp((a / (HEIGHT / 2) + 1) / 2, 0, 1), lum = 0.55 + 0.6 * t, { color: tint, amount: m } = depthTint(t);
       Sh[j] = tint.r * m * lum; Sh[j + 1] = tint.g * m * lum; Sh[j + 2] = tint.b * m * lum; Sh[j + 3] = (1 - m) * lum;
     }
-    sPos.needsUpdate = sShade.needsUpdate = true;
-    shadowGeo.computeVertexNormals();
+    pos.needsUpdate = shade.needsUpdate = true;
+    mesh.geometry.computeVertexNormals();
   }
   // The TV and the antenna tesseract as tubes, from an eye EYE_TV ana of the TV's center; dim (kata) to bright (ana).
   const TUBE = new THREE.CylinderGeometry(1, 1, 1, 10, 1, true), KNOB = new THREE.SphereGeometry(1, 14, 10);
@@ -215,15 +271,16 @@ function main() {
     { name: 'Cat', color: tok('--fur-light'), range: [0, 0] },
     { name: '4D TV', color: tok('--chrome'), range: [0, 0] },
   ];
-  let mirrored = false;
+  let mirrored = false, catAt = CAT_AT, drift = 0, reach = { key: '', lo: 0, hi: 0 };
   function rebuild() {
-    const V = you.frame(), mode = ST.mode;
-    // the cat: its spin in its own coordinates, then turned to face where you start
-    const catM = mm(FACE, SPINS[ST.spin].R(angle)), cv = inView(V, CAT_AT, catM), G = cv.G, at = cv.at;
-    let lo = Infinity, hi = -Infinity;
-    for (let i = 0; i < base.length; i += 3) { const a = G[12] * base[i] + G[13] * base[i + 1] + G[14] * base[i + 2]; if (a < lo) lo = a; if (a > hi) hi = a; }
-    const catSpan = CAT_W * Math.abs(G[15]);
-    OBJ[0].range = [at[3] + lo - catSpan, at[3] + hi + catSpan];
+    const V = you.frame(), mode = ST.mode, spin = SPINS[ST.spin];
+    // the cat: its spin in its own coordinates, then turned to face where you start; Pass through also moves it along w
+    drift = spin.drift ? spin.drift(angle) : 0;
+    catAt = [CAT_AT[0], CAT_AT[1], CAT_AT[2], CAT_AT[3] + drift];
+    const catM = mm(FACE, spin.R(angle)), cv = inView(V, catAt, catM), G = cv.G, at = cv.at;
+    const key = G.slice(12).join();   // how far it reaches along your ana depends only on G's w row
+    if (key !== reach.key) [reach.lo, reach.hi] = roundRange(G, round), reach.key = key;
+    OBJ[0].range = [at[3] + reach.lo, at[3] + reach.hi];
     mirrored = G[15] < 0;
     // the TV, and its antenna tesseract spinning in 4D in the TV's own coordinates
     const tvv = inView(V, TV_AT, FACE), TG = tvv.G, tat = tvv.at;
@@ -232,11 +289,13 @@ function main() {
     const tvA = TG.slice(12, 16), tvAna = [...tv.wire.verts, ...antLocal].map(v => tat[3] + dot(tvA, v));
     OBJ[1].range = [Math.min(...tvAna), Math.max(...tvAna)];
 
-    catShadow.visible = tvTubes.visible = tvKnobs.visible = mode === 'shadow';
+    tvTubes.visible = tvKnobs.visible = mode === 'shadow';
+    for (const l of catLayers) l.mesh.visible = mode === 'shadow';
     if (mode === 'shadow') {
-      for (const p of [...catPanels, ...tvPanels]) drawPanel(p, null);
+      for (const c of catCuts) drawCut(c, G, null);
+      for (const p of tvPanels) drawPanel(p, null);
       antCuts.forEach(m => { m.visible = false; });
-      drawCatShadow(G, at);
+      for (const l of catLayers) drawCatShadow(l, G, at);
       drawTVShadow(TG, tat, antLocal);
       placeScreen(screenShadow(TG, tat, EYE_TV, scr), null);
     } else {
@@ -246,7 +305,7 @@ function main() {
       OBJ[0].stackInfo = { spacing: 2 * catReach + 0.6, bottom: -(HEIGHT / 2 + 0.35), labels };
       OBJ[1].stackInfo = { spacing: 2 * TV.half[0] + 1, bottom: FLOOR_Y - TV_AT[1] - 0.35, labels };
       const cc = cuts(OBJ[0], OBJ[0].stackInfo.spacing), tc = cuts(OBJ[1], OBJ[1].stackInfo.spacing);
-      catPanels.forEach((p, i) => drawPanel(p, cc[i] && thickSlice(G, CAT_W, cc[i].off - at[3]), at[0] + (cc[i]?.x || 0), at[1], at[2]));
+      catCuts.forEach((c, i) => drawCut(c, G, cc[i] ? cc[i].off - at[3] : null, at[0] + (cc[i]?.x || 0), at[1], at[2]));
       tvPanels.forEach((p, i) => drawPanel(p, tc[i] && thickSlice(TG, TV.half[3], tc[i].off - tat[3]), tat[0] + (tc[i]?.x || 0), tat[1], tat[2]));
       const antView = antLocal.map(v => add(tat, mv(TG, v)));
       antCuts.forEach((m, i) => drawAntenna(m, antView, tc[i]));
@@ -293,7 +352,7 @@ function main() {
     readout(V, you.S.P);
     for (const o of OBJ) drawRulerRow(o.row, o.bar, o.range, you.vol.on, 'Crosses your slice');
     const deg = Math.round(THREE.MathUtils.radToDeg(angle)) % 360;
-    hudTurn.textContent = SPINS[ST.spin].label(deg, Math.round(THREE.MathUtils.radToDeg(angle)));
+    hudTurn.textContent = SPINS[ST.spin].label(deg, Math.round(THREE.MathUtils.radToDeg(angle)), drift);
     hudMirror.hidden = !mirrored;
   }
 
@@ -381,6 +440,8 @@ function main() {
   setSpin(ST.spin);
   setMode(ST.mode);
   const stackTags = $('stack-tags');
+  // For the smoke test: stop the cat at a pose, `deg` degrees into spin `spin`.
+  window.cat4d = { pose(spin, deg) { setWant(false); setSpin(spin); rate = 0; angle = THREE.MathUtils.degToRad(deg); } };
   let last = performance.now();
   function frame(now) {
     const dt = Math.min(0.05, (now - last) / 1000);
@@ -405,7 +466,7 @@ function main() {
     // label the stack of whichever object sits closest to where you're looking
     let tagged = null, best = Infinity;
     const V = you.frame();
-    if (ST.mode === 'stack') for (const [o, C] of [[OBJ[0], CAT_AT], [OBJ[1], TV_AT]]) {
+    if (ST.mode === 'stack') for (const [o, C] of [[OBJ[0], catAt], [OBJ[1], TV_AT]]) {
       const c = inView(V, C, FACE).at, p = new THREE.Vector3(c[0], c[1], c[2]), d = p.distanceTo(controls.target);
       if (d < best) { best = d; tagged = { o, p }; }
     }

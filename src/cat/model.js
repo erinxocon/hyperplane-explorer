@@ -5,10 +5,14 @@
 // Each vertex carries what the fur shader (fur.js) paints from: `part` (fur, eye, nose or whisker), `region` (for
 // fur, how much of it is head, leg, tail and inner ear; the rest is body, and the weights blend across the joins),
 // `anchor` (an eye's or the nose's center; for fur, x is how far along the tail), `catPos` (its own position, kept
-// when Shadow moves `position`) and `shade` (Shadow's depth tint; none here). LAND gives the shader its landmarks.
+// when a slice or Shadow moves `position`) and `shade` (Shadow's depth tint; none here). LAND gives the shader its
+// landmarks. `depth` is for the 4D rounding (main.js): how far in along its normal the vertex's part is thickest.
 // It faces +z with y up and its left side toward +x, centered front to back and on its middle height, so 4D turns
 // spin it in place; its feet are at y = −HEIGHT / 2. Two things are only on one side, so a mirror image is easy to
 // spot: its tail curls to its right, and its left front paw has a white sock.
+// In 4D the cat is as round in w as it is in 3D: each skin point turns into w around a circle about the middle of its
+// part, `depth` in, so a ball becomes a 4D ball and a round leg a round 4D tube (slice4d.js does the cutting). Its body
+// reaches about ±0.57 along w, its head ±0.33, its legs ±0.12, its ears ±0.04 and its whiskers hardly at all.
 import * as THREE from 'three';
 import { mergeBufferGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
@@ -131,6 +135,20 @@ function cat(x, y, z, out) {
   return d;
 }
 
+// How deep a surface point sits in its part: how far in along the normal the field keeps falling at full rate, that is
+// how far that normal still leads back to this point as the nearest on the surface (for a ball, its center; for a limb,
+// its axis). Rounding the cat into w pushes its skin inward along the normals, and a point can go no farther than this.
+const DSTEP = 0.02;
+function depthIn(f, x, y, z, nx, ny, nz) {
+  let t = 0, g = -f(x, y, z);
+  while (t < 0.7) {
+    const next = -f(x - nx * (t + DSTEP), y - ny * (t + DSTEP), z - nz * (t + DSTEP));
+    if (next - g < 0.5 * DSTEP) return t + DSTEP / 2;   // falling at less than half rate: past the middle
+    t += DSTEP; g = next;
+  }
+  return t;
+}
+
 /* ---------- surface nets ---------- */
 // Samples f on a grid from lo, n[i] nodes along axis i, one vertex per cell the surface crosses (the mean of its edge
 // crossings, then pulled onto the surface), one quad per crossed grid edge. Closed when f > 0 on the grid's border.
@@ -207,11 +225,15 @@ LAND.eye = at(EYE);
 
 export function buildCat() {
   const parts = [];
-  // tag a piece built in design units, then move it into cat units
-  const add = (geo, part, anchor = [0, 0, 0], region = [0, 0, 0, 0]) => {
+  // tag a piece built in design units, then move it into cat units; `field` is its own distance field, for `depth`,
+  // or a number for a piece too thin to need one
+  const add = (geo, part, field, anchor = [0, 0, 0], region = [0, 0, 0, 0]) => {
     if (geo.getAttribute('uv')) geo.deleteAttribute('uv');
+    const n = geo.getAttribute('position').count, P = geo.getAttribute('position'), N = geo.getAttribute('normal');
+    const depth = Array.from({ length: n }, (_, i) => SC * (typeof field === 'number' ? field
+      : depthIn(field, P.getX(i), P.getY(i), P.getZ(i), N.getX(i), N.getY(i), N.getZ(i))));
+    geo.setAttribute('depth', new THREE.Float32BufferAttribute(depth, 1));
     geo.scale(SC, SC, SC).translate(0, -HEIGHT / 2, -ZC * SC);
-    const n = geo.getAttribute('position').count;
     geo.setAttribute('part', new THREE.Float32BufferAttribute(new Array(n).fill(part), 1));
     const anc = typeof anchor === 'function' ? anchor : () => anchor, reg = typeof region === 'function' ? region : () => region;
     geo.setAttribute('anchor', new THREE.Float32BufferAttribute(Array.from({ length: n }, (_, i) => anc(i)).flat(), 3));
@@ -238,23 +260,24 @@ export function buildCat() {
     reg.push(w[1] * rest, w[2] * rest, w[3] * rest, inner);
     tt.push([o.t, 0, 0]);
   }
-  add(fur, PART.FUR, i => tt[i], i => reg.slice(4 * i, 4 * i + 4));
+  add(fur, PART.FUR, (x, y, z) => cat(x, y, z), i => tt[i], i => reg.slice(4 * i, 4 * i + 4));
 
   // eyes, bulging a little out of the face, and a nose on the bridge of the muzzle
   sides(s => {
-    const c = [EYE[0] * s, EYE[1], EYE[2]], g = ball(28, 20).scale(...EYE_R);
+    const c = [EYE[0] * s, EYE[1], EYE[2]], g = ball(28, 20).scale(...EYE_R), eye = ellipsoid([0, 0, 0], EYE_R);
+    const cs = Math.cos(0.3 * s), sn = Math.sin(0.3 * s);   // turned 0.3 about y: undo that to measure in its own frame
     g.rotateY(0.3 * s).translate(...c);
-    add(g, PART.EYE, at(c));
+    add(g, PART.EYE, (x, y, z) => { const dx = x - c[0], dz = z - c[2]; return eye(dx * cs - dz * sn, y - c[1], dx * sn + dz * cs); }, at(c));
   });
-  const ny = HEAD[1] - 0.06, nose = [0, ny, front(0, ny) - 0.012];
-  add(new THREE.SphereGeometry(1, 20, 14).scale(0.048, 0.03, 0.03).translate(...nose), PART.NOSE, at(nose));
+  const ny = HEAD[1] - 0.06, nose = [0, ny, front(0, ny) - 0.012], NOSE_R = [0.048, 0.03, 0.03];
+  add(new THREE.SphereGeometry(1, 20, 14).scale(...NOSE_R).translate(...nose), PART.NOSE, ellipsoid(nose, NOSE_R), at(nose));
   // whiskers, from the muzzle pads, drooping a little
   sides(s => [-0.02, 0.012, 0.042].forEach((dy, i) => {
     const y0 = HEAD[1] - 0.115 + dy * 0.5, a = new THREE.Vector3(0.1 * s, y0, front(0.1 * s, y0) - 0.01);
     const b = new THREE.Vector3(0.42 * s, y0 + dy * 2.4 - 0.03, a.z - 0.1 - i * 0.04);
     const g = new THREE.CylinderGeometry(0.0022, 0.004, a.distanceTo(b), 5);
     g.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), b.clone().sub(a).normalize()));
-    add(g.translate(...a.clone().add(b).multiplyScalar(0.5).toArray()), PART.WHISKER);
+    add(g.translate(...a.clone().add(b).multiplyScalar(0.5).toArray()), PART.WHISKER, 0.003);
   }));
 
   const g = mergeBufferGeometries(parts);

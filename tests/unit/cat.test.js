@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { rot, mm, mv, ident } from '../../src/math4d.js';
-import { thickSlice, inView, clipRect, screenSlice, screenShadow } from '../../src/cat/slice4d.js';
+import * as THREE from 'three';
+import { thickSlice, inView, clipRect, screenSlice, screenShadow, roundCutter, roundRange, roundLayer } from '../../src/cat/slice4d.js';
 
 const det3 = m => m[0] * (m[4] * m[8] - m[5] * m[7]) - m[1] * (m[3] * m[8] - m[5] * m[6]) + m[2] * (m[3] * m[7] - m[4] * m[6]);
 const near = (a, b, eps = 1e-9) => assert.ok(Math.abs(a - b) < eps, `${a} vs ${b}`);
@@ -82,3 +83,68 @@ test('the screen in Shadow: the projective matrix agrees with projecting each po
     apply(m, x, y).forEach((v, i) => near(v, at[i] + r[i] * k));
   }
 });
+
+// A ball of radius R, as round in w as in 3D, is a 4D ball: every cut is a ball and it reaches ±R along any ana.
+const R = 0.6, sphere = new THREE.SphereGeometry(R, 48, 32), N = sphere.getAttribute('position').count;
+const ball = {
+  s: Float32Array.from(sphere.getAttribute('position').array), n: Float32Array.from(sphere.getAttribute('normal').array),
+  r: new Float32Array(N).fill(R), tris: Uint32Array.from(sphere.index.array),
+};
+const cutter = roundCutter(ball, [{ array: ball.s, size: 3 }]), buf = cutter.output();
+// the cut's area and enclosed volume (positive when it faces out), and how far its vertices stray from radius r
+function measure(G, off) {
+  const c = cutter.cut(G, off, buf), P = c.pos, r = Math.sqrt(R * R - off * off), v = j => new THREE.Vector3().fromArray(P, 3 * j);
+  let area = 0, vol = 0, stray = 0;
+  for (let t = 0; t < c.ni; t += 3) {
+    const a = v(c.index[t]), b = v(c.index[t + 1]), d = v(c.index[t + 2]);
+    area += b.clone().sub(a).cross(d.clone().sub(a)).length() / 2;
+    vol += a.dot(b.clone().cross(d)) / 6;
+  }
+  for (let j = 0; j < c.nv; j++) stray = Math.max(stray, Math.abs(v(j).length() - r));
+  return { area: area / (4 * Math.PI * r * r), vol: vol / (4 / 3 * Math.PI * r ** 3), stray, tris: c.ni / 3, verts: c.nv };
+}
+const TILT = mm(rot(0, 3, 0.7), rot(1, 2, 0.3)), EDGE_ON = rot(2, 3, Math.PI / 2);
+
+test('a rounded ball is a 4D ball: level, tilted or edge-on, the cut at off is a ball of radius √(R² − off²)', () => {
+  for (const [G, name] of [[ident(), 'level'], [TILT, 'tilted'], [EDGE_ON, 'edge-on']]) for (const off of [0.001, 0.25, -0.5]) {
+    const m = measure(G, off);
+    assert.ok(Math.abs(m.area - 1) < 0.03, `${name} ${off}: area ×${m.area.toFixed(3)}`);
+    assert.ok(Math.abs(m.vol - 1) < 0.04, `${name} ${off}: volume ×${m.vol.toFixed(3)}`);
+    assert.ok(m.stray < 0.02, `${name} ${off}: a vertex ${m.stray.toFixed(3)} off the sphere`);
+  }
+});
+
+test('a level cut is the skin, pushed in: one triangle per skin triangle', () => {
+  const m = measure(ident(), 0.001);
+  assert.equal(m.tris, ball.tris.length / 3);
+  assert.ok(m.verts <= N);   // the sphere's poles have spare vertices
+});
+
+test('beyond its reach a cut is empty, and the reach is ±R along any ana', () => {
+  assert.equal(measure(TILT, 0.61).tris, 0);
+  for (const G of [ident(), TILT]) { const [lo, hi] = roundRange(G, ball); near(lo, -R, 1e-6); near(hi, R, 1e-6); }
+});
+
+test('a layer at w is each point pushed in by r − √(r² − w²), or to its middle where its part does not reach', () => {
+  const w = 0.3, rs = Float32Array.from(ball.r, (r, i) => (i % 2 ? 0.2 : r)), L = roundLayer({ ...ball, r: rs }, w);
+  for (let i = 0; i < N; i++) {
+    const r = rs[i], wi = Math.min(w, r);
+    near(L[4 * i + 3], wi, 1e-6);
+    near(Math.hypot(L[4 * i], L[4 * i + 1], L[4 * i + 2]), R - r + Math.sqrt(r * r - wi * wi), 1e-5);
+  }
+});
+
+test('a slab rounds into a circle in w: its two faces meet with no ridge', () => {
+  // a thin box (half-thickness h in z), its faces h deep: in (z, w) it is a circle of radius h, so the cut at z = z0 has
+  // its faces at |w| = √(h² − z0²); a ridge where the faces meet would put them elsewhere
+  const h = 0.1, box = new THREE.BoxGeometry(1, 1, 2 * h, 1, 1, 1).toNonIndexed(), M = box.getAttribute('position').count;
+  const pos = box.getAttribute('position').array, nrm = box.getAttribute('normal').array;
+  const faceZ = [...Array(M).keys()].filter(i => Math.abs(nrm[3 * i + 2]) > 0.5);
+  const src = { s: Float32Array.from(faceZ.flatMap(i => [pos[3 * i], pos[3 * i + 1], pos[3 * i + 2]])), n: Float32Array.from(faceZ.flatMap(i => [0, 0, nrm[3 * i + 2]])), r: new Float32Array(faceZ.length).fill(h), tris: Uint32Array.from(faceZ.keys()) };
+  const c = roundCutter(src, []), o = c.output();
+  const z0 = 0.06;
+  c.cut(rot(2, 3, Math.PI / 2), z0, o);   // your slice: x, y and the box's w (on your z); the box's z is ana
+  for (let j = 0; j < o.nv; j++) near(Math.abs(o.pos[3 * j + 2]), Math.sqrt(h * h - z0 * z0), 1e-5);
+  assert.ok(o.ni > 0);
+});
+
