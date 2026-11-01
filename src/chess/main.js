@@ -6,7 +6,8 @@ import { WHITE, BLACK, QUEEN, coords, newGame, legalMoves, play, undo, gameState
 import { PIECE_GEOMETRY, STAND, buildStand, buildFrame } from './models.js';
 import { toScreen } from '../hud.js';
 import { tok } from '../scenery.js';
-import { $, reduceMotion, createRenderer, roomEnvironment, press, onButton, VIEW_KEYS, cameraTween } from '../utils.js';
+import { roomEnvironment } from '../environment.js';
+import { $, reduceMotion, createRenderer, press, onButton, VIEW_KEYS, cameraTween } from '../utils.js';
 import '../styles.css';
 import './chess.css';
 
@@ -355,8 +356,9 @@ function main() {
   function frameCamera(dur = 0.9) {
     const F = FRAMING[S.stand][S.mode], mid = middle(style()), at = new THREE.Vector3(F.at[0], mid.y + F.at[1], mid.z), dir = new THREE.Vector3(...F.dir).normalize();
     const t = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)), d = 1.06 * Math.max(F.fit[0] / (t * camera.aspect), F.fit[1] / t);
-    cam.go([at, at.clone().addScaledVector(dir, d)], dur);
-    if (!dur || reduceMotion) { cam.step(0); controls.update(); }   // there at once, before the next frame
+    const to = [at, at.clone().addScaledVector(dir, d)];
+    if (dur) cam.go(to, dur);
+    else { cam.set(to); controls.update(); }   // there at once, before the next frame
   }
   function resize() {
     const w = view.clientWidth, h = view.clientHeight;

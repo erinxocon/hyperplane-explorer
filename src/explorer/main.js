@@ -52,7 +52,6 @@ function main() {
   const puzzle = createPuzzle(WORLD.find(o => o.puzzle), {
     frame, mode: () => VIEW.mode, volOn: () => VOL.on, redraw, S, startJump, setVolume, frameOn,
   });
-  WORLD.find(o => o.puzzle).build = puzzle.rebuild;
 
   // redraw every shape for your display frame, with the 4D spin (Spin checkbox) when it is on
   function rebuild() {
