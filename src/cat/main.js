@@ -17,12 +17,12 @@ import { createWalker } from '../walk.js';
 import { roomEnvironment } from '../environment.js';
 import { $, reduceMotion, press, onButton } from '../utils.js';
 import { tok, depthShade, depthTint, tubeMatrix, knobMatrix } from '../scenery.js';
-import { fmt, drawRulerRow, stackOffs } from '../hud.js';
-import { buildCat, HEIGHT } from './model.js';
+import { drawRulerRow, stackOffs, toScreen } from '../hud.js';
+import { buildCat, HEIGHT, LAND, PART } from './model.js';
 import { furMaterial } from './fur.js';
-import { inView, thickSlice, screenSlice, screenShadow, roundCutter, roundRange, roundLayer } from './slice4d.js';
+import { inView, frameMatrix, thickSlice, screenSlice, screenShadow, roundCutter, roundRange, roundLayer } from './slice4d.js';
 import { buildTV, TV } from './tv.js';
-import { SPINS, FACE } from './spins.js';
+import { SPINS, FACE, BEST, FRAMES, CROSS, pose, filmAngles, trail } from './spins.js';
 import './cat.css';
 
 const FLOOR_Y = -2.4, EYE_CAT = 4, EYE_TV = 4.5, ANT = 0.3;
@@ -43,6 +43,18 @@ const SPIN_DESC = {
   wobble: '<b>Wobble</b> is the meme spin with a slow roll through z–w and w–x, so the cat swings through three axes at once, x, z and w. It leans in and out of your slice while it spins.',
   flip: '<b>Somersault</b> turns it in the y–w plane, so its height tips into w. A quarter turn on, your slice cuts it level through its middle, filled out up and down by its roundness in w. Half a turn on it is upside down and mirrored, a pose no 3D turn can reach.',
 };
+// what Best view does for each kind of spin (BEST in spins.js)
+const BEST_DESC = {
+  level: '<b>Level with it.</b> Your slice holds x, y and z, so it holds the x–z plane this spin turns in. Nothing turns out of your slice, and you see the whole cat.',
+  front: '<b>Pitched into ana.</b> Your slice is turned a quarter turn so it holds x, y and w, and cuts across z through the cat’s head. It holds this spin’s plane too, so the cut keeps its shape and just turns, like a 3D spin: the head and ears, filled out by their roundness in w.',
+  volume: '<b>Volume view, level with its back.</b> Your slice holds x, z and w, laid level, with w up, and cuts the cat lengthwise just under the top of its back: body, neck, chin and tail. Every turn of this spin stays in those three axes and leaves y alone, so that cut turns as one solid piece, a 3D tumble of its outline.',
+  shadow: '<b>Shadow, with trails.</b> This spin turns in two planes at once, or three, and no 3D slice holds them all, so any slice shows parts appearing and vanishing. The shadow shows the whole cat, and the trails show where its nose, ear tips, tail tip and socked paw go over one loop.',
+};
+const LAYOUT_DESC = {
+  slice: 'The cat as your slice cuts it, in whichever view is on.',
+  cross: '<b>Axis cross</b> cuts the cat four ways at once through its center: across x, y, z and w, each panel showing the other three axes (across y lies level, with w up). The cuts are fixed to the world, not to you, so they show which axes a spin mixes: the meme spin keeps the cuts across y and w whole and just turns them, and a turn through w does the same to the cuts across y and z. Slice view only; the TV is hidden.',
+  film: '<b>Film strip</b> is one whole loop of the spin in eight frames as your slice cuts it, top row first, left to right. The frame nearest the cat’s pose now is lit. Move or tilt your slice and every frame changes with it. Slice view only; the TV is hidden.',
+};
 const VIEW_DESC = {
   slice: '<b>Slice</b> is what a 3D being in your hyperplane sees. The cat is as round in w as it is in 3D: about 1.1 through its body, 0.7 through its head and 0.25 through a leg. The TV is a box 1.4 thick. Level with their middles you see both whole. Step ana or kata and the cat thins, its whiskers, ears, tail and legs going first, while the TV stays whole until you leave it. Its coat is patterned in 4D, so its stripes slide as you go. Tilt your slice into ana, or turn the cat through w, and you see the cat stretched and the TV as a band, with flat faces where your slice cuts through it. The picture on the TV is cut the same way: swing sideways into ana (U, O) and it narrows to a band; step ana or kata to slide the band across.',
   stack: '<b>Stack</b> cuts the cat and the TV with three parallel hyperplanes each, a quarter of their extent along ana apart, kata on the left, laid side by side. The sideways gaps are only for display. The picture shows on the middle TV.',
@@ -50,7 +62,7 @@ const VIEW_DESC = {
 };
 
 function main() {
-  const ST = { spin: 'both', speed: 1 };
+  const ST = { spin: 'both', speed: 1, layout: 'slice', trails: false };
   let want = false, angle = 0, rate = 0, antT = 0;
 
   /* ---------- scene ---------- */
@@ -103,7 +115,7 @@ function main() {
   const round = { s: CA('catPos').array, n: CA('normal').array, r: CA('depth').array, tris: cat.index.array };
   const CARRY = ['catPos', 'anchor', 'region', 'part'];
   const cutter = roundCutter(round, CARRY.map(k => ({ array: CA(k).array, size: CA(k).itemSize })));
-  const catMat = furMaterial(fur), catCuts = [0, 1, 2].map(() => ({ out: cutter.output(), mesh: null, key: '' }));
+  const catMat = furMaterial(fur), catCuts = [];   // made as needed: Stack uses three, the axis cross four, the film strip eight
   function cutMesh(c) {   // a mesh on c's buffers, made again when they grow
     const o = c.out, g = new THREE.BufferGeometry(), dyn = (a, size) => new THREE.BufferAttribute(a, size).setUsage(THREE.DynamicDrawUsage);
     g.setAttribute('position', dyn(o.pos, 3));
@@ -116,7 +128,7 @@ function main() {
     else { c.mesh = new THREE.Mesh(g, catMat); c.mesh.frustumCulled = false; scene.add(c.mesh); }
     o.grown = false;
   }
-  catCuts.forEach(cutMesh);
+  const cutAt = i => { if (!catCuts[i]) { catCuts[i] = { out: cutter.output(), mesh: null, key: '' }; cutMesh(catCuts[i]); } return catCuts[i]; };
   // show cut c of the cat at `off` ana of its center, seen through G, centered at (x, y, z); off = null hides it
   function drawCut(c, G, off, x, y, z) {
     c.mesh.visible = off !== null;
@@ -134,8 +146,9 @@ function main() {
     g.index.updateRange.count = o.ni;
     g.index.needsUpdate = true;
   }
-  let catReach = 0;   // the farthest the cat reaches from its spin axis, for the Stack's spacing
-  for (let i = 0; i < base.length; i += 3) catReach = Math.max(catReach, Math.hypot(base[i], base[i + 2]));
+  let catReach = 0, catR = 0;   // the farthest the cat reaches from its spin axis (for the Stack's spacing) and from its center
+  for (let i = 0; i < base.length; i += 3) { catReach = Math.max(catReach, Math.hypot(base[i], base[i + 2])); catR = Math.max(catR, Math.hypot(base[i], base[i + 1], base[i + 2])); }
+  const GAP = 2 * catR + 0.3;   // between the panels of the axis cross and the film strip: room for the cat turned any way
 
   const tv = buildTV(FLOOR_Y - TV_AT[1]);
   const chromeOpts = { color: new THREE.Color(tok('--chrome')), roughness: 0.18, metalness: 1 };
@@ -202,6 +215,49 @@ function main() {
     for (const im of [tvTubes, tvKnobs]) { im.instanceMatrix.needsUpdate = true; im.instanceColor.needsUpdate = true; }
   }
 
+  // Trails: where a few points of the cat go over one whole loop of the spin, projected like the cat. A path is a
+  // curve, which meets your slice only at points, so they show in Shadow only.
+  const part = CA('part').array, anchor = CA('anchor').array, S3 = round.s;
+  const pick = (ok, score) => { let best = -1, bs = -Infinity; for (let i = 0; i < part.length; i++) if (ok(i)) { const v = score(i); if (v > bs) { bs = v; best = i; } } return [S3[3 * best], S3[3 * best + 1], S3[3 * best + 2]]; };
+  const furAt = (i, f) => part[i] === PART.FUR && f(S3[3 * i], S3[3 * i + 1], S3[3 * i + 2]);
+  const TRAILS = [
+    { name: 'nose', p: pick(i => part[i] === PART.NOSE, i => S3[3 * i + 2]) },
+    { name: 'left ear', p: pick(i => furAt(i, (x, y, z) => x > 0 && z > 0), i => S3[3 * i + 1]) },
+    { name: 'right ear', p: pick(i => furAt(i, (x, y, z) => x < 0 && z > 0), i => S3[3 * i + 1]) },
+    { name: 'tail tip', p: pick(i => part[i] === PART.FUR, i => anchor[3 * i]) },
+    { name: 'socked paw', p: pick(i => furAt(i, (x, y, z) => x > 0.1 && z > 0), i => 0.3 * S3[3 * i + 2] - S3[3 * i + 1]) },
+  ].map((t, i) => {
+    const col = new THREE.Color(tok(`--trail-${i + 1}`));
+    return { ...t, css: tok(`--trail-${i + 1}`), dim: col.clone().lerp(BG, 0.55), bright: col.clone().lerp(new THREE.Color(0xffffff), 0.25) };
+  });
+  const TRAIL_STEPS = 96;   // per turn
+  const trailMat = new THREE.MeshStandardMaterial({ roughness: 0.4, metalness: 0.1 });
+  const trailInst = (geo, n) => { const m = new THREE.InstancedMesh(geo, trailMat, n); m.frustumCulled = false; m.visible = false; scene.add(m); return m; };
+  const trailTubes = trailInst(TUBE, TRAILS.length * TRAIL_STEPS * 3), trailKnobs = trailInst(KNOB, TRAILS.length);
+  let trailPaths = { spin: '', paths: [] };
+  // G, at: the cat now, as drawCatShadow takes it; d: how far it has moved along w
+  function drawTrails(V, G, at, d) {
+    if (trailPaths.spin !== ST.spin) trailPaths = { spin: ST.spin, paths: TRAILS.map(t => trail(ST.spin, t.p, TRAIL_STEPS * SPINS[ST.spin].turns)) };
+    const Q = frameMatrix(V);
+    // as the cat's vertices: from an eye EYE_CAT ana of its center now, so the trail runs through the point itself
+    const project = r => { const q = mv(Q, r), k = EYE_CAT / Math.max(0.3 * EYE_CAT, EYE_CAT - q[3]); return { p: new THREE.Vector3(at[0] + q[0] * k, at[1] + q[1] * k, at[2] + q[2] * k), a: q[3], k }; };
+    const shadeOf = (t, a) => depthShade(_c, t.dim, t.bright, (a / (HEIGHT / 2) + 1) / 2);
+    let n = 0;
+    TRAILS.forEach((t, ti) => {
+      const pts = trailPaths.paths[ti].map(X => project([X[0], X[1], X[2], X[3] - d]));
+      pts.forEach((A, i) => {
+        const B = pts[(i + 1) % pts.length];
+        trailTubes.setMatrixAt(n, tubeMatrix(A.p, B.p, 0.014 * (A.k + B.k) / 2));
+        trailTubes.setColorAt(n++, shadeOf(t, (A.a + B.a) / 2));
+      });
+      const g = mv(G, [...t.p, 0]), k = EYE_CAT / Math.max(0.3 * EYE_CAT, EYE_CAT - g[3]);
+      trailKnobs.setMatrixAt(ti, knobMatrix(_a.set(at[0] + g[0] * k, at[1] + g[1] * k, at[2] + g[2] * k), 0.045 * k));
+      trailKnobs.setColorAt(ti, shadeOf(t, g[3]));
+    });
+    trailTubes.count = n;
+    for (const im of [trailTubes, trailKnobs]) { im.instanceMatrix.needsUpdate = true; im.instanceColor.needsUpdate = true; }
+  }
+
   /* ---------- the picture: the YouTube player, on its own layer above the canvas ---------- */
   const cssScene = new THREE.Scene(), cssRenderer = new CSS3DRenderer();
   cssRenderer.domElement.className = 'css3d';
@@ -239,7 +295,7 @@ function main() {
   // Slice cuts at your own slice; Stack at the middle of an object's extent along ana and a quarter of it either side,
   // `spacing` apart sideways
   const cutsOf = (o, mode, spacing) => mode === 'slice' ? [null, { off: 0, x: 0 }, null] : stackOffs(o.range).map((off, i) => ({ off, x: (i - 1) * spacing }));
-  let mirrored = false, drift = 0, reach = { key: '', lo: 0, hi: 0 };
+  let mirrored = false, drift = 0, reach = { key: '', lo: 0, hi: 0 }, tagSpots = [];
   const catObj = {
     name: 'Cat', color: tok('--fur-light'), range: [0, 0], center: CAT_AT,
     build(V, { mode, labels }) {
@@ -253,19 +309,50 @@ function main() {
       catObj.range = [at[3] + reach.lo, at[3] + reach.hi];
       mirrored = G[15] < 0;
       for (const l of catLayers) l.mesh.visible = mode === 'shadow';
+      trailTubes.visible = trailKnobs.visible = mode === 'shadow' && ST.trails;
+      const layout = mode === 'slice' ? ST.layout : 'slice';
+      let used = 0;
+      const shown = new Set(), show = (G4, off, x, y, z) => { shown.add(used); drawCut(cutAt(used++), G4, off, x, y, z); };
+      tagSpots = [];
       if (mode === 'shadow') {
-        for (const c of catCuts) drawCut(c, G, null);
         for (const l of catLayers) drawCatShadow(l, G, at);
+        if (ST.trails) drawTrails(V, G, at, drift);
+      } else if (layout === 'cross') {
+        // each panel cuts through the cat's center at rest, in its own frame, laid out side by side about where it stands
+        const rest = inView(V, CAT_AT, FACE).at, M = mm(FACE, spin.R(angle));
+        CROSS.forEach((c, k) => {
+          const pv = inView({ P: CAT_AT, ...c.frame }, catObj.center, M), x = rest[0] + (k - 1.5) * GAP;
+          show(pv.G, -pv.at[3], x + pv.at[0], rest[1] + pv.at[1], rest[2] + pv.at[2]);
+          tagSpots.push({ x, y: rest[1] - catR - 0.1, z: rest[2], text: `across ${c.axis} · ${c.shows}` });
+        });
+      } else if (layout === 'film') {
+        // eight poses over the loop, each cut by your slice: two rows of four, the first row on top
+        const rest = inView(V, CAT_AT, FACE).at, angles = filmAngles(ST.spin, 8), loop = SPINS[ST.spin].turns * 2 * Math.PI;
+        const now = Math.round(((angle % loop) + loop) % loop / loop * 8) % 8;
+        angles.forEach((a, j) => {
+          const p = pose(ST.spin, a), v = inView(V, [CAT_AT[0], CAT_AT[1], CAT_AT[2], CAT_AT[3] + p.drift], p.M);
+          const dx = (j % 4 - 1.5) * GAP, dy = j < 4 ? GAP : 0;
+          show(v.G, -v.at[3], v.at[0] + dx, v.at[1] + dy, v.at[2]);
+          tagSpots.push({ x: rest[0] + dx, y: rest[1] + dy - catR - 0.1, z: rest[2], text: `${Math.round(THREE.MathUtils.radToDeg(a))}°`, now: j === now });
+        });
       } else {
         catObj.stackInfo = { spacing: 2 * catReach + 0.6, bottom: -(HEIGHT / 2 + 0.35), labels };
         const cc = cutsOf(catObj, mode, catObj.stackInfo.spacing);
-        catCuts.forEach((c, i) => drawCut(c, G, cc[i] ? cc[i].off - at[3] : null, at[0] + (cc[i]?.x || 0), at[1], at[2]));
+        cc.forEach(c => c ? show(G, c.off - at[3], at[0] + c.x, at[1], at[2]) : used++);
       }
+      catCuts.forEach((c, i) => { if (!shown.has(i)) drawCut(c, null, null); });   // forEach skips the ones never made
     },
   };
   const tvObj = {
     name: '4D TV', color: tok('--chrome'), range: [0, 0], center: TV_AT,
     build(V, { mode, labels }) {
+      if (mode === 'slice' && ST.layout !== 'slice') {   // the axis cross and the film strip are of the cat alone
+        for (const p of tvPanels) drawPanel(p, null);
+        antCuts.forEach(m => { m.visible = false; });
+        tvTubes.visible = tvKnobs.visible = false;
+        placeScreen(null);
+        return;
+      }
       const tvv = inView(V, TV_AT, FACE), TG = tvv.G, tat = tvv.at;
       // its antenna tesseract spins in 4D in the TV's own coordinates
       const S4 = mm(rot(0, 3, antT), rot(1, 2, antT * 0.7));
@@ -363,7 +450,42 @@ function main() {
   playBtn.addEventListener('click', () => setWant(!want));
 
   /* ---------- spins and keys ---------- */
-  function setSpin(s) { ST.spin = s; press('spin', s); $('spin-desc').innerHTML = SPIN_DESC[s]; }
+  function setSpin(s) { ST.spin = s; press('spin', s); $('spin-desc').innerHTML = SPIN_DESC[s]; $('best-desc').hidden = true; walker.redraw(); }
+  // the axis cross and the film strip replace the cat's cut in Slice; the camera pulls back to take them in
+  function setLayout(l, moveCamera = true) {
+    const was = ST.layout;
+    ST.layout = l;
+    press('layout', l);
+    $('layout-desc').innerHTML = LAYOUT_DESC[l];
+    if (l !== 'slice' && walker.mode() !== 'slice') $('vm-slice').click();
+    if (moveCamera && l !== was) {
+      const up = l === 'film' ? mul(walker.frame().U, GAP / 2) : [0, 0, 0, 0];
+      walker.frameOn(add(CAT_AT, up), l === 'slice' ? 1 : l === 'film' ? 2.6 : 2.3);
+    }
+    walker.redraw();
+  }
+  onButton('layout', b => setLayout(b.dataset.v));
+  function setTrails(on) { ST.trails = on; $('trails').checked = on; $('trail-key').hidden = !on; walker.redraw(); }
+  $('trails').addEventListener('change', e => setTrails(e.target.checked));
+  $('trail-key').innerHTML = TRAILS.map(t => `<span><span class="dot" style="background:${t.css}"></span>${t.name}</span>`).join('');
+  // Best view: turn your slice (or the view) to the one that shows this spin best (BEST in spins.js) and look at the cat
+  $('best').addEventListener('click', () => {
+    const kind = SPINS[ST.spin].best, b = BEST[kind];
+    setLayout('slice', false);
+    if (walker.mode() !== b.mode) $('vm-' + b.mode).click();
+    if (VOL.on !== b.volume) walker.setVolume(b.volume);
+    if (b.trails) setTrails(true);
+    if (b.frame) {
+      const to = FRAMES[b.frame];
+      // level: where you start, the cat ahead; front: across z through its head (FACE turns its z to −z), standing back
+      // along w; volume: just under the top of its back, a height none of these turns moves
+      const P = kind === 'front' ? [0, 0, CAT_AT[2] - LAND.head[2], CAT_AT[3] - 5] : kind === 'volume' ? [0, CAT_AT[1] + LAND.backY - 0.08, 0, 0] : [0, 0, 0, 0];
+      walker.startJump({ from: S.P.slice(), to: P, t: 0, dur: 1.2, frame: { from: { R: S.R, F: S.F, A: S.A }, to: { R: to.R, F: to.F, A: to.A } } });
+    }
+    walker.frameOn(CAT_AT, 1, 1.2);
+    $('best-desc').innerHTML = BEST_DESC[kind];
+    $('best-desc').hidden = false;
+  });
   onButton('spin', b => setSpin(b.dataset.v));
   $('speed').addEventListener('input', e => { ST.speed = +e.target.value; });
   // the view buttons and keys, volume view, walking and Reset are the walker's; Space is ours
@@ -375,7 +497,28 @@ function main() {
   // For the smoke test: stop the cat at a pose, `deg` degrees into spin `spin`.
   window.cat4d = { pose(spin, deg) { setWant(false); setSpin(spin); rate = 0; angle = THREE.MathUtils.degToRad(deg); } };
 
+  setLayout('slice', false);
+  // the labels under the panels of the axis cross and the film strip
+  const tagBox = document.createElement('div'), _t = new THREE.Vector3();
+  tagBox.className = 'tags cat-tags';
+  tagBox.innerHTML = '<span class="tag"></span>'.repeat(8);
+  view.append(tagBox);
+  function placeTags() {
+    const w = view.clientWidth, h = view.clientHeight;
+    [...tagBox.children].forEach((el, i) => {
+      const t = tagSpots[i];
+      el.hidden = !t;
+      if (!t) return;
+      _t.set(t.x, t.y, t.z).project(camera);
+      el.hidden = _t.z > 1;
+      el.textContent = t.text;
+      el.classList.toggle('now', !!t.now);
+      el.style.transform = toScreen(_t, w, h);
+    });
+  }
+
   walker.run(OBJ, {
+    mode(m) { if (m !== 'slice' && ST.layout !== 'slice') setLayout('slice', false); },
     // the picture's layer is the size of the view
     resize() { cssRenderer.setSize(view.clientWidth, view.clientHeight); },
     volume(on) {
@@ -391,7 +534,7 @@ function main() {
       walker.redraw();   // it is always moving, or at least its antenna is
     },
     update: updatePanel,
-    after() { cssRenderer.render(cssScene, camera); },
+    after() { placeTags(); cssRenderer.render(cssScene, camera); },
   });
 }
 
