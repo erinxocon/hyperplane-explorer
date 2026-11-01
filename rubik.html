@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>4D Rubik’s Cube</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+</head>
+<body>
+<div class="app">
+  <div class="view" id="view"></div>
+
+  <aside class="panel">
+    <header>
+      <h1>4D Rubik’s Cube</h1>
+      <p class="lede">A 3×3×3×3 puzzle with 80 movable pieces. You stand in a 3D slice of it: you see the part of the puzzle your slice cuts, and a twist turns a whole 3×3×3 block of it. Step <em>ana</em> or <em>kata</em> to slide the slice along the fourth axis, or rotate it to cut the puzzle at a new angle.</p>
+    </header>
+
+    <section>
+      <h2>4D Rubik’s cube <span class="state" id="rk-state">solved</span></h2>
+      <div class="rk">
+        <div class="rk-row"><span class="rk-lbl">Layer axis</span>
+          <div class="seg" id="rk-axis" role="group" aria-label="Layer axis">
+            <button type="button" id="rk-ax0" data-v="0">X</button><button type="button" id="rk-ax1" data-v="1">Y</button><button type="button" id="rk-ax2" data-v="2">Z</button><button type="button" id="rk-ax3" data-v="3">W</button>
+          </div></div>
+        <div class="rk-row"><span class="rk-lbl">Layer</span>
+          <div class="seg" id="rk-val" role="group" aria-label="Layer position">
+            <button type="button" id="rk-vm" data-v="-1">−1</button><button type="button" id="rk-v0" data-v="0">0</button><button type="button" id="rk-vp" data-v="1">+1</button>
+          </div></div>
+        <div class="rot" id="rk-planes"></div>
+        <div class="rk-group"><span class="rk-lbl">Aim</span><div class="rk-actions">
+          <button class="ghost" type="button" id="rk-goto">Face this layer</button>
+          <button class="ghost" type="button" id="rk-diag">Diagonal view</button>
+        </div></div>
+        <div class="rk-group"><span class="rk-lbl">4D tricks</span><div class="rk-actions">
+          <button class="ghost" type="button" id="rk-mirror">Mirror via 4D</button>
+          <button class="ghost" type="button" id="rk-spin" aria-pressed="false">Double rotation</button>
+        </div></div>
+        <div class="rk-group"><span class="rk-lbl">Puzzle</span><div class="rk-actions">
+          <button class="ghost" type="button" id="rk-scramble">Scramble</button>
+          <button class="ghost" type="button" id="rk-reset">Reset</button>
+        </div></div>
+        <p class="explain" id="rk-explain" aria-live="polite"></p>
+      </div>
+      <p class="note">A 3×3×3×3 with 80 movable pieces. A twist turns one layer (a whole 3×3×3 block) 90° in a plane that excludes the layer’s own axis. The selected layer is outlined in violet.</p>
+    </section>
+
+    <div id="nav"></div>
+
+    <div id="nav-frame"></div>
+
+    <section class="opts">
+      <a class="ghost" href="./index.html">← Hyperplane Explorer</a>
+      <button class="ghost" id="reset" type="button">Reset position</button>
+    </section>
+  </aside>
+</div>
+<script type="module" src="/src/rubik/main.js"></script>
+</body>
+</html>
