@@ -11,7 +11,7 @@
 import * as THREE from 'three';
 import { CSS3DRenderer, CSS3DObject } from 'three/examples/jsm/renderers/CSS3DRenderer.js';
 import { ConvexGeometry } from 'three/examples/jsm/geometries/ConvexGeometry.js';
-import { add, mul, dot, rot, mm, mv } from '../math4d.js';
+import { add, sub, mul, dot, rot, mm, mv } from '../math4d.js';
 import { tesseract } from '../shapes/shapes.js';
 import { createWalker } from '../walk.js';
 import { roomEnvironment } from '../environment.js';
@@ -25,7 +25,7 @@ import { buildTV, TV } from './tv.js';
 import { SPINS, FACE, BEST, FRAMES, CROSS, pose, filmAngles, trail } from './spins.js';
 import './cat.css';
 
-const FLOOR_Y = -2.4, EYE_CAT = 4, EYE_TV = 4.5, ANT = 0.3;
+const FLOOR_Y = -2.4, EYE_CAT = 4, EYE_TV = 4.5, ANT = 0.3, AHEAD = 6.5;   // AHEAD: how far Best view stands you from the cat
 // Both face where you start (FACE, in spins.js): their own +z points along world −z.
 const CAT_AT = [0, FLOOR_Y + HEIGHT / 2 + 0.02, 5, 0], TV_AT = [0, 0.9, 9.5, 0];
 const DEFAULT_VIDEO = '2TBTJL46rg8';   // "OIIA OIIA (Spinning Cat)" by W&W, from the W&W - Topic channel
@@ -53,7 +53,7 @@ const BEST_DESC = {
 const LAYOUT_DESC = {
   slice: 'The cat as your slice cuts it, in whichever view is on.',
   cross: '<b>Axis cross</b> cuts the cat four ways at once through its center: across x, y, z and w, each panel showing the other three axes (across y lies level, with w up). The cuts are fixed to the world, not to you, so they show which axes a spin mixes: the meme spin keeps the cuts across y and w whole and just turns them, and a turn through w does the same to the cuts across y and z. Slice view only; the TV is hidden.',
-  film: '<b>Film strip</b> is one whole loop of the spin in eight frames as your slice cuts it, top row first, left to right. The frame nearest the cat’s pose now is lit. Move or tilt your slice and every frame changes with it. Slice view only; the TV is hidden.',
+  film: '<b>Film strip</b> is one whole loop of the spin in eight frames as your slice cuts it, back row first, left to right. The frame nearest the cat’s pose now is lit. Move or tilt your slice and every frame changes with it. Slice view only; the TV is hidden.',
 };
 const VIEW_DESC = {
   slice: '<b>Slice</b> is what a 3D being in your hyperplane sees. The cat is as round in w as it is in 3D: about 1.1 through its body, 0.7 through its head and 0.25 through a leg. The TV is a box 1.4 thick. Level with their middles you see both whole. Step ana or kata and the cat thins, its whiskers, ears, tail and legs going first, while the TV stays whole until you leave it. Its coat is patterned in 4D, so its stripes slide as you go. Tilt your slice into ana, or turn the cat through w, and you see the cat stretched and the TV as a band, with flat faces where your slice cuts through it. The picture on the TV is cut the same way: swing sideways into ana (U, O) and it narrows to a band; step ana or kata to slide the band across.',
@@ -149,6 +149,7 @@ function main() {
   let catReach = 0, catR = 0;   // the farthest the cat reaches from its spin axis (for the Stack's spacing) and from its center
   for (let i = 0; i < base.length; i += 3) { catReach = Math.max(catReach, Math.hypot(base[i], base[i + 2])); catR = Math.max(catR, Math.hypot(base[i], base[i + 1], base[i + 2])); }
   const GAP = 2 * catR + 0.3;   // between the panels of the axis cross and the film strip: room for the cat turned any way
+  const FILM_ROW = 1.1 * GAP;   // how far behind the film strip's front row its back row stands
 
   const tv = buildTV(FLOOR_Y - TV_AT[1]);
   const chromeOpts = { color: new THREE.Color(tok('--chrome')), roughness: 0.18, metalness: 1 };
@@ -326,14 +327,16 @@ function main() {
           tagSpots.push({ x, y: rest[1] - catR - 0.1, z: rest[2], text: `across ${c.axis} · ${c.shows}` });
         });
       } else if (layout === 'film') {
-        // eight poses over the loop, each cut by your slice: two rows of four, the first row on top
+        // eight poses over the loop, each cut by your slice: two rows of four on the floor, the first row behind and
+        // shifted half a column, so each of its frames shows between two in front
         const rest = inView(V, CAT_AT, FACE).at, angles = filmAngles(ST.spin, 8), loop = SPINS[ST.spin].turns * 2 * Math.PI;
         const now = Math.round(((angle % loop) + loop) % loop / loop * 8) % 8;
         angles.forEach((a, j) => {
           const p = pose(ST.spin, a), v = inView(V, [CAT_AT[0], CAT_AT[1], CAT_AT[2], CAT_AT[3] + p.drift], p.M);
-          const dx = (j % 4 - 1.5) * GAP, dy = j < 4 ? GAP : 0;
-          show(v.G, -v.at[3], v.at[0] + dx, v.at[1] + dy, v.at[2]);
-          tagSpots.push({ x: rest[0] + dx, y: rest[1] + dy - catR - 0.1, z: rest[2], text: `${Math.round(THREE.MathUtils.radToDeg(a))}°`, now: j === now });
+          const back = j < 4, dx = (j % 4 - 1.5) * GAP + (back ? GAP / 4 : -GAP / 4), dz = back ? -FILM_ROW : 0;
+          show(v.G, -v.at[3], v.at[0] + dx, v.at[1], v.at[2] + dz);
+          // the back row's labels go above it, clear of the front row
+          tagSpots.push({ x: rest[0] + dx, y: rest[1] + (back ? catR + 0.1 : -catR - 0.1), z: rest[2] + dz, above: back, text: `${Math.round(THREE.MathUtils.radToDeg(a))}°`, now: j === now });
         });
       } else {
         catObj.stackInfo = { spacing: 2 * catReach + 0.6, bottom: -(HEIGHT / 2 + 0.35), labels };
@@ -459,8 +462,8 @@ function main() {
     $('layout-desc').innerHTML = LAYOUT_DESC[l];
     if (l !== 'slice' && walker.mode() !== 'slice') $('vm-slice').click();
     if (moveCamera && l !== was) {
-      const up = l === 'film' ? mul(walker.frame().U, GAP / 2) : [0, 0, 0, 0];
-      walker.frameOn(add(CAT_AT, up), l === 'slice' ? 1 : l === 'film' ? 2.6 : 2.3);
+      const back = l === 'film' ? mul(walker.frame().F, FILM_ROW / 2) : [0, 0, 0, 0];   // the middle of the strip's two rows
+      walker.frameOn(add(CAT_AT, back), l === 'slice' ? 1 : l === 'film' ? 2.5 : 2.3);
     }
     walker.redraw();
   }
@@ -476,10 +479,13 @@ function main() {
     if (VOL.on !== b.volume) walker.setVolume(b.volume);
     if (b.trails) setTrails(true);
     if (b.frame) {
-      const to = FRAMES[b.frame];
-      // level: where you start, the cat ahead; front: across z through its head (FACE turns its z to −z), standing back
-      // along w; volume: just under the top of its back, a height none of these turns moves
-      const P = kind === 'front' ? [0, 0, CAT_AT[2] - LAND.head[2], CAT_AT[3] - 5] : kind === 'volume' ? [0, CAT_AT[1] + LAND.backY - 0.08, 0, 0] : [0, 0, 0, 0];
+      // where the slice goes through the cat. level: its middle; front: across z through its head (FACE turns its z to
+      // −z); volume: just under the top of its back, a height none of these turns moves. You stand AHEAD back from it
+      // along your forward, far enough that the camera, framing the cat, is in front of your marker and doesn't see it.
+      const to = FRAMES[b.frame], at = [0, 0, CAT_AT[2], CAT_AT[3]];
+      if (kind === 'front') at[2] -= LAND.head[2];
+      if (kind === 'volume') at[1] = CAT_AT[1] + LAND.backY - 0.08;
+      const P = sub(at, mul(to.F, AHEAD));
       walker.startJump({ from: S.P.slice(), to: P, t: 0, dur: 1.2, frame: { from: { R: S.R, F: S.F, A: S.A }, to: { R: to.R, F: to.F, A: to.A } } });
     }
     walker.frameOn(CAT_AT, 1, 1.2);
@@ -513,7 +519,7 @@ function main() {
       el.hidden = _t.z > 1;
       el.textContent = t.text;
       el.classList.toggle('now', !!t.now);
-      el.style.transform = toScreen(_t, w, h);
+      el.style.transform = toScreen(_t, w, h) + (t.above ? ' translate(0, -100%)' : '');   // above: its bottom at the point
     });
   }
 
