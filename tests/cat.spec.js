@@ -48,7 +48,7 @@ test('4D spinning cat: walk, tilt, every view', async ({ page }) => {
 
   // every spin for a moment, level with the cat; then poses that show its roundness in w: a quarter somersault, and
   // Pass through partway out of your slice
-  for (const v of ['w', 'pass', 'double', 'opposite', 'knot', 'flip', 'y']) {
+  for (const v of ['w', 'pass', 'double', 'opposite', 'knot', 'flip', 'tumble', 'wobble', 'y']) {
     await page.click(`#spin-${v}`);
     await expect(page.locator(`#spin-${v}`)).toHaveAttribute('aria-pressed', 'true');
     await page.waitForTimeout(300);

@@ -42,6 +42,8 @@ const SPINS = {
   opposite: { R: t => mm(rot(0, 2, t), rot(1, 3, -t)), label: t => `x–z turn ${t}° · y–w turn ${(360 - t) % 360}°` },
   knot: { R: t => mm(rot(0, 2, t), rot(1, 3, 2 * t / 3)), label: (t, r) => `x–z turn ${t}° · y–w turn ${Math.round(2 * r / 3) % 360}°` },
   flip: { R: t => rot(1, 3, t), label: t => `y–w turn ${t}°` },
+  tumble: { R: t => mm(mm(rot(0, 2, t), rot(1, 3, 2 * t / 3)), rot(0, 1, t / 3)), label: (t, r) => `x–z turn ${t}° · y–w turn ${Math.round(2 * r / 3) % 360}° · x–y turn ${Math.round(r / 3) % 360}°` },
+  wobble: { R: t => mm(mm(rot(0, 2, t), rot(2, 3, t / 3)), rot(3, 0, t / 3)), label: (t, r) => `x–z turn ${t}° · z–w and w–x turns ${Math.round(r / 3) % 360}°` },
 };
 const SPIN_DESC = {
   y: '<b>3D</b> spins it around y, in the x–z plane: the meme spin. Nothing leaves your slice, so standing level with it you see the whole cat.',
@@ -51,6 +53,8 @@ const SPIN_DESC = {
   double: '<b>Double</b> turns it in the x–z and y–w planes at once, at the same rate. No point of the cat stays still, which no 3D spin can do.',
   opposite: '<b>Opposite</b> is Double with its y–w turn run backwards. The two are mirror images of each other, and no turning makes one into the other: in 4D, double rotations at equal rates come in two hands, like left and right. Nothing in 3D works like this.',
   knot: '<b>2 : 3</b> turns x–z three times while y–w turns twice, so it takes all three turns to come back. Most points of the cat run along a path shaped like a trefoil knot. In 4D any knot can be untied, so it is only knot-shaped.',
+  tumble: '<b>Tumble</b> turns it in three planes at once: x–z three times, y–w twice and x–y once, all in the three turns of the loop. Every 4D rotation is at most two plane turns at a moment, so the planes themselves keep changing: it tumbles like a spinning coin, and its pose never settles into a steady spin.',
+  wobble: '<b>Wobble</b> is the meme spin with a slow roll through z–w and w–x, so the cat swings through three axes at once, x, z and w. It leans in and out of your slice while it spins.',
   flip: '<b>Somersault</b> turns it in the y–w plane, so its height tips into w. A quarter turn on, your slice cuts it level through its middle, filled out up and down by its roundness in w. Half a turn on it is upside down and mirrored, a pose no 3D turn can reach.',
 };
 const VIEW_DESC = {
