@@ -1,12 +1,13 @@
 // The markup every 4D page's stage (stage.js) shares: the overlay in the view (position readout, compass, hint, Stack
 // labels), the View / Move / Rotate sections and the frame matrix. A page puts <div id="nav"></div> and
 // <div id="nav-frame"></div> in its panel where they go, and its own sections around them.
-export const VIEW_OVERLAY = `
+// `hint` adds to the line at the bottom of the view.
+export const viewOverlay = (hint = '') => `
     <div class="hud top" id="hud">
       <span>x <b id="px">0.00</b></span><span>y <b id="py">0.00</b></span><span>z <b id="pz">0.00</b></span><span class="w">w <b id="pw">0.00</b></span>
     </div>
     <canvas class="compass" id="compass" aria-label="Compass: where the world x, y, z and w axes point from your view" role="img"></canvas>
-    <div class="hud bottom">Drag to orbit · scroll or pinch to zoom</div>
+    <div class="hud bottom">Drag to orbit · scroll or pinch to zoom${hint}</div>
     <div class="tags" id="stack-tags" hidden><span class="tag"></span><span class="tag"></span><span class="tag"></span></div>`;
 
 export const NAV_HTML = `    <section>

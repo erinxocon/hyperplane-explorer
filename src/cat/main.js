@@ -1,6 +1,7 @@
 // 4D spinning cat: the OIIA meme cat, round in w, spinning in 4D in front of a 4D TV that plays "OIIA OIIA" from
-// YouTube. You walk their world as in the explorer: viewer.js is your frame and controls, and everything is drawn in
-// your display frame V (volume view turns it). The cat is as round in w as it is in 3D (model.js); Slice and Stack cut
+// YouTube. You walk their world on the walker (walk.js) the explorer uses: your frame and controls, the View / Move /
+// Rotate panel and the loop are its, and the cat and the TV are two entries of its world, each drawn in your display
+// frame V (volume view turns it). The cat is as round in w as it is in 3D (model.js); Slice and Stack cut
 // it with roundCutter, and Shadow draws three of its layers in w. The TV is a 3D shape
 // thickened along w, cut with thickSlice, an affine map plus a slab (both in slice4d.js). Shadow projects each from an
 // eye ana of it.
@@ -8,21 +9,19 @@
 // the part of the screen inside your slice, or projected in Shadow. Its layer is above the canvas, so no 3D object is
 // ever drawn over it.
 import * as THREE from 'three';
-import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { CSS3DRenderer, CSS3DObject } from 'three/examples/jsm/renderers/CSS3DRenderer.js';
 import { ConvexGeometry } from 'three/examples/jsm/geometries/ConvexGeometry.js';
 import { add, mul, dot, rot, mm, mv } from '../math4d.js';
 import { tesseract } from '../shapes/shapes.js';
-import { createViewer, bindControls } from '../viewer.js';
+import { createWalker } from '../walk.js';
 import { roomEnvironment } from '../environment.js';
-import { $, reduceMotion, createRenderer, press, onButton, VIEW_KEYS, cameraTween } from '../utils.js';
-import { tok, createFloor, createMarker, depthShade, depthTint, tubeMatrix, knobMatrix } from '../scenery.js';
-import { fmt, createReadout, createCompass, drawRulerRow, stackLabels, stackOffs, placeStackTags } from '../hud.js';
+import { $, reduceMotion, press, onButton } from '../utils.js';
+import { tok, depthShade, depthTint, tubeMatrix, knobMatrix } from '../scenery.js';
+import { fmt, drawRulerRow, stackOffs } from '../hud.js';
 import { buildCat, HEIGHT } from './model.js';
 import { furMaterial } from './fur.js';
 import { inView, thickSlice, screenSlice, screenShadow, roundCutter, roundRange, roundLayer } from './slice4d.js';
 import { buildTV, TV } from './tv.js';
-import '../styles.css';
 import './cat.css';
 
 const FLOOR_Y = -2.4, EYE_CAT = 4, EYE_TV = 4.5, ANT = 0.3, DRIFT = 1.1;   // DRIFT: how far Pass through takes the cat along w
@@ -59,38 +58,21 @@ const VIEW_DESC = {
   stack: '<b>Stack</b> cuts the cat and the TV with three parallel hyperplanes each, a quarter of their extent along ana apart, kata on the left, laid side by side. The sideways gaps are only for display. The picture shows on the middle TV.',
   shadow: '<b>Shadow</b> is a 4D perspective projection from an eye ana of each object. The cat shows three of its layers in w: its middle, and see-through thinner ones kata and ana of it. The TV’s 4D box shows as a box in a box joined at the corners, and its screen, a rectangle times the thickness, as a frustum; the picture sits on its middle layer. Parts further kata are smaller, dimmer and bluer, parts nearer the eye bigger, brighter and warmer.',
 };
-const VOL_DESC = ' <b>Volume view is on:</b> your slice lies level, so here ana means down and kata means up.';
 
 function main() {
-  const view = $('view');
-  const ST = { spin: 'both', mode: 'slice', speed: 1 };
-  const you = createViewer(), keys = bindControls(you);
+  const ST = { spin: 'both', speed: 1 };
   let want = false, angle = 0, rate = 0, antT = 0;
 
   /* ---------- scene ---------- */
-  const renderer = createRenderer(view, 'the cat');
-  if (!renderer) return;
+  // you walk it on the walker (walk.js): the scene, floor, camera, your state, the View / Move / Rotate panel and the loop
+  const walker = createWalker({
+    what: 'the cat', viewDesc: VIEW_DESC, hint: ' · space plays', floorY: FLOOR_Y, floor: [10, 32, -6],
+    position: [2.2, 3.4, 5.6], target: [0, -0.4, -7], fog: [18, 46], lights: { hemi: 0.4, sun: 0.7, fill: 0 },
+  });
+  if (!walker) return;
+  const { renderer, scene, BG, camera, view } = walker;
   renderer.localClippingEnabled = true;
-  const BG = new THREE.Color(tok('--ground')), scene = new THREE.Scene();
-  scene.background = BG;
-  scene.fog = new THREE.Fog(BG, 18, 46);
   roomEnvironment(renderer, scene);
-  scene.add(new THREE.HemisphereLight(0xdfe7ff, 0x1a2230, 0.4));
-  const sun = new THREE.DirectionalLight(0xffffff, 0.7);
-  sun.position.set(4, 9, 6);
-  scene.add(sun);
-  const camera = new THREE.PerspectiveCamera(52, 1, 0.05, 200);
-  const CAM = { at: new THREE.Vector3(0, -0.4, -7), from: new THREE.Vector3(2.2, 3.4, 5.6) };
-  camera.position.copy(CAM.from);
-  const controls = new OrbitControls(camera, renderer.domElement);
-  controls.target.copy(CAM.at);
-  controls.enableDamping = true;
-  controls.maxDistance = 40; controls.minDistance = 1.5;
-  const cam = cameraTween(camera, controls);
-
-  // the floor, the 4D hyperplane y = FLOOR_Y cut by your slice, checkered on world (x, z, w) as in the explorer; and you
-  const floor = createFloor(BG, [10, 32, -6]);
-  scene.add(floor.mesh, createMarker());
 
   /* ---------- Slice and Stack ---------- */
   // The TV: a 3D shape thickened along w, drawn as three panels (Stack uses all three, Slice the middle one). A panel shows
@@ -263,55 +245,60 @@ function main() {
   }
   const area = poly => Math.abs(poly.reduce((s, [x, y], i) => { const [u, v] = poly[(i + 1) % poly.length]; return s + x * v - u * y; }, 0)) / 2;
 
-  /* ---------- rebuild: everything, in your display frame ---------- */
-  const OBJ = [
-    { name: 'Cat', color: tok('--fur-light'), range: [0, 0] },
-    { name: '4D TV', color: tok('--chrome'), range: [0, 0] },
-  ];
-  let mirrored = false, catAt = CAT_AT, drift = 0, reach = { key: '', lo: 0, hi: 0 };
-  function rebuild() {
-    const V = you.frame(), mode = ST.mode, spin = SPINS[ST.spin];
-    // the cat: its spin in its own coordinates, then turned to face where you start; Pass through also moves it along w
-    drift = spin.drift ? spin.drift(angle) : 0;
-    catAt = [CAT_AT[0], CAT_AT[1], CAT_AT[2], CAT_AT[3] + drift];
-    const catM = mm(FACE, spin.R(angle)), cv = inView(V, catAt, catM), G = cv.G, at = cv.at;
-    const key = G.slice(12).join();   // how far it reaches along your ana depends only on G's w row
-    if (key !== reach.key) [reach.lo, reach.hi] = roundRange(G, round), reach.key = key;
-    OBJ[0].range = [at[3] + reach.lo, at[3] + reach.hi];
-    mirrored = G[15] < 0;
-    // the TV, and its antenna tesseract spinning in 4D in the TV's own coordinates
-    const tvv = inView(V, TV_AT, FACE), TG = tvv.G, tat = tvv.at;
-    const S4 = mm(rot(0, 3, antT), rot(1, 2, antT * 0.7));
-    const antLocal = T4.verts.map(v => add(tv.antenna, mul(mv(S4, v), ANT)));
-    const tvA = TG.slice(12, 16), tvAna = [...tv.wire.verts, ...antLocal].map(v => tat[3] + dot(tvA, v));
-    OBJ[1].range = [Math.min(...tvAna), Math.max(...tvAna)];
-
-    tvTubes.visible = tvKnobs.visible = mode === 'shadow';
-    for (const l of catLayers) l.mesh.visible = mode === 'shadow';
-    if (mode === 'shadow') {
-      for (const c of catCuts) drawCut(c, G, null);
-      for (const p of tvPanels) drawPanel(p, null);
-      antCuts.forEach(m => { m.visible = false; });
-      for (const l of catLayers) drawCatShadow(l, G, at);
-      drawTVShadow(TG, tat, antLocal);
-      placeScreen(screenShadow(TG, tat, EYE_TV, scr), null);
-    } else {
-      // Slice cuts at your own slice; Stack at the middle of each object's extent along ana and a quarter of it either side
-      const cuts = (o, spacing) => mode === 'slice' ? [null, { off: 0, x: 0 }, null] : stackOffs(o.range).map((off, i) => ({ off, x: (i - 1) * spacing }));
-      const labels = stackLabels(you.vol.on);
-      OBJ[0].stackInfo = { spacing: 2 * catReach + 0.6, bottom: -(HEIGHT / 2 + 0.35), labels };
-      OBJ[1].stackInfo = { spacing: 2 * TV.half[0] + 1, bottom: FLOOR_Y - TV_AT[1] - 0.35, labels };
-      const cc = cuts(OBJ[0], OBJ[0].stackInfo.spacing), tc = cuts(OBJ[1], OBJ[1].stackInfo.spacing);
-      catCuts.forEach((c, i) => drawCut(c, G, cc[i] ? cc[i].off - at[3] : null, at[0] + (cc[i]?.x || 0), at[1], at[2]));
-      tvPanels.forEach((p, i) => drawPanel(p, tc[i] && thickSlice(TG, TV.half[3], tc[i].off - tat[3]), tat[0] + (tc[i]?.x || 0), tat[1], tat[2]));
-      const antView = antLocal.map(v => add(tat, mv(TG, v)));
-      antCuts.forEach((m, i) => drawAntenna(m, antView, tc[i]));
-      const s = screenSlice(TG, tat, TV.half[3], tc[1].off, scr);   // the middle cut is never shifted sideways
-      placeScreen(Math.abs(s.b) < 0.12 ? null : s.m, s.poly);   // nearly edge-on: too stretched to show
-    }
-    floor.update(V, FLOOR_Y);
-    updatePanel(V);
-  }
+  /* ---------- the world: the cat and the TV, each drawn in your display frame ---------- */
+  // Slice cuts at your own slice; Stack at the middle of an object's extent along ana and a quarter of it either side,
+  // `spacing` apart sideways
+  const cutsOf = (o, mode, spacing) => mode === 'slice' ? [null, { off: 0, x: 0 }, null] : stackOffs(o.range).map((off, i) => ({ off, x: (i - 1) * spacing }));
+  let mirrored = false, drift = 0, reach = { key: '', lo: 0, hi: 0 };
+  const catObj = {
+    name: 'Cat', color: tok('--fur-light'), range: [0, 0], center: CAT_AT,
+    build(V, { mode, labels }) {
+      const spin = SPINS[ST.spin];
+      // its spin in its own coordinates, then turned to face where you start; Pass through also moves it along w
+      drift = spin.drift ? spin.drift(angle) : 0;
+      catObj.center = [CAT_AT[0], CAT_AT[1], CAT_AT[2], CAT_AT[3] + drift];
+      const cv = inView(V, catObj.center, mm(FACE, spin.R(angle))), G = cv.G, at = cv.at;
+      const key = G.slice(12).join();   // how far it reaches along your ana depends only on G's w row
+      if (key !== reach.key) [reach.lo, reach.hi] = roundRange(G, round), reach.key = key;
+      catObj.range = [at[3] + reach.lo, at[3] + reach.hi];
+      mirrored = G[15] < 0;
+      for (const l of catLayers) l.mesh.visible = mode === 'shadow';
+      if (mode === 'shadow') {
+        for (const c of catCuts) drawCut(c, G, null);
+        for (const l of catLayers) drawCatShadow(l, G, at);
+      } else {
+        catObj.stackInfo = { spacing: 2 * catReach + 0.6, bottom: -(HEIGHT / 2 + 0.35), labels };
+        const cc = cutsOf(catObj, mode, catObj.stackInfo.spacing);
+        catCuts.forEach((c, i) => drawCut(c, G, cc[i] ? cc[i].off - at[3] : null, at[0] + (cc[i]?.x || 0), at[1], at[2]));
+      }
+    },
+  };
+  const tvObj = {
+    name: '4D TV', color: tok('--chrome'), range: [0, 0], center: TV_AT,
+    build(V, { mode, labels }) {
+      const tvv = inView(V, TV_AT, FACE), TG = tvv.G, tat = tvv.at;
+      // its antenna tesseract spins in 4D in the TV's own coordinates
+      const S4 = mm(rot(0, 3, antT), rot(1, 2, antT * 0.7));
+      const antLocal = T4.verts.map(v => add(tv.antenna, mul(mv(S4, v), ANT)));
+      const tvA = TG.slice(12, 16), tvAna = [...tv.wire.verts, ...antLocal].map(v => tat[3] + dot(tvA, v));
+      tvObj.range = [Math.min(...tvAna), Math.max(...tvAna)];
+      tvTubes.visible = tvKnobs.visible = mode === 'shadow';
+      if (mode === 'shadow') {
+        for (const p of tvPanels) drawPanel(p, null);
+        antCuts.forEach(m => { m.visible = false; });
+        drawTVShadow(TG, tat, antLocal);
+        placeScreen(screenShadow(TG, tat, EYE_TV, scr), null);
+      } else {
+        tvObj.stackInfo = { spacing: 2 * TV.half[0] + 1, bottom: FLOOR_Y - TV_AT[1] - 0.35, labels };
+        const tc = cutsOf(tvObj, mode, tvObj.stackInfo.spacing);
+        tvPanels.forEach((p, i) => drawPanel(p, tc[i] && thickSlice(TG, TV.half[3], tc[i].off - tat[3]), tat[0] + (tc[i]?.x || 0), tat[1], tat[2]));
+        const antView = antLocal.map(v => add(tat, mv(TG, v)));
+        antCuts.forEach((m, i) => drawAntenna(m, antView, tc[i]));
+        const sc = screenSlice(TG, tat, TV.half[3], tc[1].off, scr);   // the middle cut is never shifted sideways
+        placeScreen(Math.abs(sc.b) < 0.12 ? null : sc.m, sc.poly);   // nearly edge-on: too stretched to show
+      }
+    },
+  };
   // the antenna tesseract cut at cut.off (ana of you), shifted cut.x sideways: the hull of where its edges cross
   function drawAntenna(m, W, cut) {
     m.geometry.dispose();
@@ -328,6 +315,7 @@ function main() {
   }
 
   /* ---------- panel ---------- */
+  const OBJ = [catObj, tvObj], { S, VOL } = walker;
   const ruler = $('ruler');
   OBJ.forEach(o => {
     const wrap = document.createElement('div'), b = document.createElement('button');
@@ -337,17 +325,15 @@ function main() {
     b.innerHTML = `<span class="nm"><span class="dot" style="background:${o.color}"></span>${o.name}</span><span class="track"><span class="bar" style="background:${o.color}"></span></span>`;
     b.addEventListener('click', () => {   // center your slice on it
       const [lo, hi] = o.range;
-      you.jumpTo(add(you.S.P, mul(you.frame().A, (lo + hi) / 2)));
-      if (reduceMotion) you.step(0, true);   // land at once
+      walker.startJump({ from: S.P.slice(), to: add(S.P, mul(walker.frame().A, (lo + hi) / 2)), t: 0 });
     });
     o.row = b; o.bar = b.querySelector('.bar');
     wrap.append(b);
     ruler.append(wrap);
   });
-  const readout = createReadout(), hudTurn = $('hud-turn'), hudMirror = $('hud-mirror');
-  function updatePanel(V) {
-    readout(V, you.S.P);
-    for (const o of OBJ) drawRulerRow(o.row, o.bar, o.range, you.vol.on, 'Crosses your slice');
+  const hudTurn = $('hud-turn'), hudMirror = $('hud-mirror');
+  function updatePanel() {
+    for (const o of OBJ) drawRulerRow(o.row, o.bar, o.range, VOL.on, 'Crosses your slice');
     const deg = Math.round(THREE.MathUtils.radToDeg(angle)) % 360;
     hudTurn.textContent = SPINS[ST.spin].label(deg, Math.round(THREE.MathUtils.radToDeg(angle)), drift);
     hudMirror.hidden = !mirrored;
@@ -386,82 +372,37 @@ function main() {
   document.head.append(api);
   playBtn.addEventListener('click', () => setWant(!want));
 
-  /* ---------- views, spins and keys ---------- */
-  function setMode(m) {
-    if (m !== ST.mode && (m === 'stack' || ST.mode === 'stack')) cam.dolly(m === 'stack' ? 1.5 : 1 / 1.5);
-    ST.mode = m;
-    press('view-mode', m);
-    $('view-desc').innerHTML = VIEW_DESC[m] + (you.vol.on ? VOL_DESC : '');
-  }
+  /* ---------- spins and keys ---------- */
   function setSpin(s) { ST.spin = s; press('spin', s); $('spin-desc').innerHTML = SPIN_DESC[s]; }
-  const volBox = $('volume');
-  function setVolume(on) {
-    you.vol.on = on;   // you.step tweens it, or makes it instant with reduced motion
-    volBox.checked = on;
-    $('ax-lo').textContent = on ? '6 above' : 'kata −6';
-    $('ax-hi').textContent = on ? '6 below' : '+6 ana';
-    setMode(ST.mode);
-  }
-  volBox.addEventListener('change', () => setVolume(volBox.checked));
   onButton('spin', b => setSpin(b.dataset.v));
-  onButton('view-mode', b => setMode(b.dataset.v));
   $('speed').addEventListener('input', e => { ST.speed = +e.target.value; });
-  $('reset').addEventListener('click', () => you.reset());
+  // the view buttons and keys, volume view, walking and Reset are the walker's; Space is ours
   window.addEventListener('keydown', e => {
     if (e.metaKey || e.ctrlKey || e.altKey) return;
-    if (VIEW_KEYS[e.code]) setMode(VIEW_KEYS[e.code]);
-    else if (e.code === 'KeyV') { if (!e.repeat) setVolume(!you.vol.on); }
-    else if (e.code === 'Space' && !e.target.closest('button, input')) { e.preventDefault(); setWant(!want); }
+    if (e.code === 'Space' && !e.target.closest('button, input')) { e.preventDefault(); setWant(!want); }
   });
-
-  /* ---------- compass ---------- */
-  // The four world axes as seen from your orbit camera, each projected into your slice, as in the explorer.
-  const drawCompass = createCompass($('compass'));
-
-  /* ---------- camera and loop ---------- */
-  function resize() {
-    const w = view.clientWidth, h = view.clientHeight;
-    if (!w || !h) return;
-    renderer.setSize(w, h, false);
-    cssRenderer.setSize(w, h);
-    camera.aspect = w / h; camera.updateProjectionMatrix();
-  }
-  new ResizeObserver(resize).observe(view);
-  resize();
   setSpin(ST.spin);
-  setMode(ST.mode);
-  const stackTags = $('stack-tags');
   // For the smoke test: stop the cat at a pose, `deg` degrees into spin `spin`.
   window.cat4d = { pose(spin, deg) { setWant(false); setSpin(spin); rate = 0; angle = THREE.MathUtils.degToRad(deg); } };
-  let last = performance.now();
-  function frame(now) {
-    const dt = Math.min(0.05, (now - last) / 1000);
-    last = now;
-    keys.apply(dt);
-    you.step(dt, reduceMotion);
-    // about a turn a second while the music plays, easing in and out; the antenna's tesseract never quite stops
-    const goal = want ? ST.speed * (reduceMotion ? 0.3 : 1) : 0;
-    rate += (goal - rate) * (1 - Math.exp(-dt * 3));
-    angle = (angle + rate * 2 * Math.PI * dt) % (6 * Math.PI);   // 3 turns: a whole period of Both
-    antT += dt * (reduceMotion ? 0.05 : 0.25) + rate * dt;
-    rebuild();
-    cam.step(dt);
-    controls.update();
-    camera.updateMatrixWorld();
-    // label the stack of whichever object sits closest to where you're looking
-    let tagged = null, best = Infinity;
-    const V = you.frame();
-    if (ST.mode === 'stack') for (const [o, C] of [[OBJ[0], catAt], [OBJ[1], TV_AT]]) {
-      const c = inView(V, C, FACE).at, p = new THREE.Vector3(c[0], c[1], c[2]), d = p.distanceTo(controls.target);
-      if (d < best) { best = d; tagged = { o, p }; }
-    }
-    placeStackTags(stackTags, view, camera, tagged?.p, tagged?.o.stackInfo);
-    drawCompass(V, camera);
-    renderer.render(scene, camera);
-    cssRenderer.render(cssScene, camera);
-    requestAnimationFrame(frame);
-  }
-  requestAnimationFrame(frame);
+
+  walker.run(OBJ, {
+    // the picture's layer is the size of the view
+    resize() { cssRenderer.setSize(view.clientWidth, view.clientHeight); },
+    volume(on) {
+      $('ax-lo').textContent = on ? '6 above' : 'kata −6';
+      $('ax-hi').textContent = on ? '6 below' : '+6 ana';
+    },
+    tick(dt) {
+      // about a turn a second while the music plays, easing in and out; the antenna's tesseract never quite stops
+      const goal = want ? ST.speed * (reduceMotion ? 0.3 : 1) : 0;
+      rate += (goal - rate) * (1 - Math.exp(-dt * 3));
+      angle = (angle + rate * 2 * Math.PI * dt) % (6 * Math.PI);   // 3 turns: a whole period of Both
+      antT += dt * (reduceMotion ? 0.05 : 0.25) + rate * dt;
+      walker.redraw();   // it is always moving, or at least its antenna is
+    },
+    update: updatePanel,
+    after() { cssRenderer.render(cssScene, camera); },
+  });
 }
 
 main();
