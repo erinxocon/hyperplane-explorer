@@ -3,7 +3,7 @@
 // o.build(V, ctx), which redraws it for your display frame V and ctx = { mode, labels, spinM } (the view, Stack's panel
 // labels, the 4D spin or null) and sets o.range (how far it reaches along your ana, for the ruler), o.stackInfo in
 // Stack, and for some o.state for the panel. Earth also has o.tick(camera, dt, reduceMotion) for every frame. The
-// Rubik's cube's build comes from rubik/puzzle.js, which the page makes.
+// Rubik's cube's build is set by createPuzzle (rubik/puzzle.js), which the page calls after createWorld.
 import * as THREE from 'three';
 import { ident, rot, mm } from '../math4d.js';
 import { tesseract, cell16, cell24, cell5, duoprism, cell600, klein, spunKlein, mobius4 } from './shapes.js';
@@ -15,7 +15,7 @@ import { setupKlein } from './klein.js';
 import { setupKlein3D } from './klein3d.js';
 import { setupMobius } from './mobius.js';
 
-export const WORLD = [
+const WORLD_DEFS = [
   { name: 'Tesseract', color: '#eaa23c', center: [0, 0, 5, 0], scale: 1, shape: tesseract(), orient: ident() },
   { name: '24-cell', color: '#4fc1a6', center: [5.6, 0, 9.5, 0.4], scale: 1.05, shape: cell24(), orient: mm(rot(0, 3, 0.5), rot(1, 2, 0.3)) },
   { name: 'Earth', color: '#5f9fd8', center: [-4.4, 0.2, 7.5, 0], radius: 1.75, thick: 0.3, globe: true },
@@ -34,6 +34,7 @@ export const WORLD = [
 const kindOf = o => (o.globe ? setupEarth : o.radius ? setupGlome : o.disks ? setupMobius : o.fibers ? setupKlein3D : o.surface ? setupKlein : setupPolytope);
 
 export function createWorld(scene, BG) {
+  const WORLD = WORLD_DEFS.map(d => ({ ...d }));   // fresh entries, so a second call (a hot reload) starts clean
   for (const o of WORLD) {
     const col = new THREE.Color(o.color);
     o.mat = new THREE.MeshStandardMaterial({ color: col, roughness: 0.55, metalness: 0.05, flatShading: !o.radius, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 });

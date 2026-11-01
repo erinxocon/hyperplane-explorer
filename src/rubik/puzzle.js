@@ -2,10 +2,11 @@
 // createPuzzle(o, ctx) takes its WORLD entry o (center, pitch, size, group) and what it needs from the page that shows
 // it, so it can go on any page:
 //   frame(), mode(), volOn()   the display frame V, the view (slice, stack, shadow), whether volume view is on
+//                              (drawing reads V and the view from o.build's arguments; the panel reads these)
 //   redraw()                   ask for the world to be redrawn
 //   S, startJump, setVolume, frameOn(center, scale, dur)   your frame, and the actions Face this layer and Diagonal
 //                              view take: moving you, leaving volume view, turning the camera
-// and returns { rebuild, step, explain, updatePanel }.
+// sets o.build(V, ctx) like the other shapes, and returns { step, explain, updatePanel }.
 import * as THREE from 'three';
 import { add, sub, mul, dot, mv } from '../math4d.js';
 import { tesseract } from '../shapes/shapes.js';
@@ -37,8 +38,8 @@ export function createPuzzle(o, ctx) {
   o.group.add(o.mesh, o.lines, o.hiLines);
 
   /* ---------- drawing ---------- */
-  function rebuild() {
-    const V = ctx.frame(), mode = ctx.mode(), d = dot(sub(o.center, V.P), V.A);
+  function rebuild(V, { mode }) {
+    const d = dot(sub(o.center, V.P), V.A);
     const m = 1.5 * o.pitch * V.A.reduce((acc, v) => acc + Math.abs(v), 0);
     o.range = [d - m, d + m];
     const pos = [], nrm = [], col = [], lin = [], hil = [], half = o.size / 2, pieces = cube.placed();
@@ -204,5 +205,6 @@ export function createPuzzle(o, ctx) {
     if (settled) updatePanel();
     return moved;
   }
-  return { rebuild, step, explain, updatePanel };
+  o.build = rebuild;
+  return { step, explain, updatePanel };
 }
