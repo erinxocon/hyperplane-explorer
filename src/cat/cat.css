@@ -14,6 +14,12 @@
   --glass: #06080b;
   --tv-cut: #3a4252;   /* the TV's cut faces */
   --screen: #000000;
+  /* Shadow's trails: nose, left ear, right ear, tail tip, socked paw */
+  --trail-1: #ff8f7a;
+  --trail-2: #ffd166;
+  --trail-3: #7bdff2;
+  --trail-4: #b8a6ff;
+  --trail-5: #e9f5db;
 }
 .hud.turn { top: 36px; left: max(16px, env(safe-area-inset-left, 0px)); display: flex; gap: 12px; }
 .hud.turn .mirror { color: var(--accent); }
@@ -34,3 +40,12 @@
 .spin-seg button:nth-child(n + 5) { border-top: 1px solid var(--line); }
 .speed { display: flex; align-items: center; gap: 12px; margin-top: 12px; font-size: 13px; }
 .speed input { flex: 1; accent-color: var(--accent); }
+.spin-tools { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; margin-top: 12px; }
+.trail-key { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 8px; font-size: 12px; color: var(--muted); }
+.trail-key > span { display: inline-flex; align-items: center; gap: 5px; }
+.trail-key .dot { width: 9px; height: 9px; border-radius: 50%; }
+.layout-seg { display: grid; grid-template-columns: repeat(3, 1fr); width: 100%; }
+.layout-seg button { font-family: var(--body); }
+/* labels under the panels of the axis cross and the film strip; the one for the cat's pose now is lit */
+.tags.cat-tags .tag { color: var(--muted); }
+.tags.cat-tags .tag.now { color: var(--accent); }

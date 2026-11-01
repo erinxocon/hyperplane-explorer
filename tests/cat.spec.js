@@ -58,5 +58,29 @@ test('4D spinning cat: walk, tilt, every view', async ({ page }) => {
     await page.waitForTimeout(400);
     await page.screenshot({ path: `test-results/cat-${spin}-${deg}.png` });
   }
+  // the cat's own views: the axis cross and the film strip (Slice only, so they switch the view back to it)
+  await page.keyboard.press('Digit3');
+  for (const l of ['cross', 'film']) {
+    await page.click(`#lay-${l}`);
+    await expect(page.locator('#vm-slice')).toHaveAttribute('aria-pressed', 'true');
+    await page.waitForTimeout(1200);
+    await expect(page.locator('.cat-tags .tag:not([hidden])').first()).toBeVisible();
+    await page.screenshot({ path: `test-results/cat-${l}.png` });
+  }
+  await page.keyboard.press('Digit2');                       // another view puts the cat back in your slice
+  await expect(page.locator('#lay-slice')).toHaveAttribute('aria-pressed', 'true');
+
+  // Best view: a quarter-turn pitch for Through w, volume view for Both, Shadow with trails for Double
+  for (const [spin, check] of [['w', '#vm-slice'], ['both', '#volume'], ['double', '#vm-shadow']]) {
+    await page.click(`#spin-${spin}`);
+    await page.click('#best');
+    await expect(page.locator('#best-desc')).toBeVisible();
+    if (check === '#volume') await expect(page.locator(check)).toBeChecked();
+    else await expect(page.locator(check)).toHaveAttribute('aria-pressed', 'true');
+    await page.waitForTimeout(1200);
+    await page.screenshot({ path: `test-results/cat-best-${spin}.png` });
+  }
+  await expect(page.locator('#trails')).toBeChecked();
+  await expect(page.locator('#pw')).toHaveText('0.00');
   expect(errors).toEqual([]);
 });

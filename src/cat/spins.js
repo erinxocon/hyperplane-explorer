@@ -41,8 +41,8 @@ export const FRAMES = {
 //   level:  your slice x, y, z holds the x–z turn (3D, Pass through).
 //   front:  pitch your slice a quarter turn so it holds x, y and w (it now cuts across z), through the cat's head. It
 //           holds the x–w turn (Through w) and the y–w turn (Somersault).
-//   volume: volume view at the height of its head: the slice holds x, z and w, which every turn of Both and Wobble
-//           stays in.
+//   volume: volume view just under the top of its back: the slice holds x, z and w, which every turn of Both and
+//           Wobble stays in.
 //   shadow: no slice holds both planes of a double rotation, or the three of Tumble, so Shadow with the trails on.
 export const BEST = {
   level: { mode: 'slice', volume: false, frame: 'level' },
