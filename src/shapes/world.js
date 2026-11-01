@@ -1,9 +1,8 @@
 // The explorer's world: every shape, where it sits in 4D, and its kind, which sets how it is drawn (one module each in
-// this folder; the Rubik's cube is rubik/). createWorld(scene, BG) makes their render objects. Each entry then has
+// this folder). createWorld(scene, BG) makes their render objects. Each entry then has
 // o.build(V, ctx), which redraws it for your display frame V and ctx = { mode, labels, spinM } (the view, Stack's panel
 // labels, the 4D spin or null) and sets o.range (how far it reaches along your ana, for the ruler), o.stackInfo in
-// Stack, and for some o.state for the panel. Earth also has o.tick(camera, dt, reduceMotion) for every frame. The
-// Rubik's cube's build is set by createPuzzle (rubik/puzzle.js), which the page calls after createWorld.
+// Stack, and for some o.state for the panel. Earth also has o.tick(camera, dt, reduceMotion) for every frame.
 import * as THREE from 'three';
 import { ident, rot, mm } from '../math4d.js';
 import { tesseract, cell16, cell24, cell5, duoprism, cell600, klein, spunKlein, mobius4 } from './shapes.js';
@@ -20,7 +19,6 @@ const WORLD_DEFS = [
   { name: '24-cell', color: '#4fc1a6', center: [5.6, 0, 9.5, 0.4], scale: 1.05, shape: cell24(), orient: mm(rot(0, 3, 0.5), rot(1, 2, 0.3)) },
   { name: 'Earth', color: '#5f9fd8', center: [-4.4, 0.2, 7.5, 0], radius: 1.75, thick: 0.3, globe: true },
   { name: '16-cell', color: '#e3728f', center: [0, 0, 5, -3.2], scale: 1.5, shape: cell16(), orient: mm(rot(2, 3, 0.6), rot(0, 1, 0.4)) },
-  { name: 'Rubik’s 3⁴', color: '#9a62e8', center: [3.4, 0.1, 2.6, 0], pitch: 0.62, size: 0.9, puzzle: true },
   { name: '5-cell', color: '#7fa9ff', center: [3.0, 0, 12.5, -0.3], scale: 1.35, shape: cell5(), orient: rot(0, 3, 0.3) },
   { name: 'Glome', color: '#f0d26e', center: [0, 0, 5, 3.2], radius: 1.35 },
   { name: '600-cell', color: '#d98ae0', center: [-3.4, 0, 2.2, 3.0], scale: 1.7, shape: cell600(), orient: mm(rot(0, 3, 0.35), rot(1, 2, 0.5)) },
@@ -46,7 +44,7 @@ export function createWorld(scene, BG) {
     o.brightCol = col.clone().lerp(WHITE, 0.3);
     o.group = new THREE.Group();
     scene.add(o.group);
-    if (!o.puzzle) kindOf(o)(o);
+    kindOf(o)(o);
   }
   return WORLD;
 }

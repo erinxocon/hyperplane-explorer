@@ -1,14 +1,13 @@
 // 4D chess: the 4×4×4×4 board drawn as four 3D boards, one per layer along your ana axis, each on a stand styled
 // after tri-dimensional chess. The rules are in rules.js; the computer opponent (ai.js) runs in worker.js.
 import * as THREE from 'three';
-import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { WHITE, BLACK, QUEEN, coords, newGame, legalMoves, play, undo, gameState, kingAt } from './rules.js';
 import { PIECE_GEOMETRY, STAND, buildStand, buildFrame } from './models.js';
 import { toScreen } from '../hud.js';
 import { tok } from '../scenery.js';
 import { roomEnvironment } from '../environment.js';
-import { $, reduceMotion, createRenderer, press, onButton, VIEW_KEYS, cameraTween } from '../utils.js';
-import '../styles.css';
+import { $, reduceMotion, press, onButton } from '../utils.js';
+import { createStage } from '../stage.js';
 import './chess.css';
 
 const AXES = 'xyzw', FILES = 'abcd';
@@ -27,6 +26,12 @@ const middle = st => new THREE.Vector3(0, 1.5 * st.level, -1.5 * st.stagger);   
 // The board axes shown as right, up and forward, by ana axis: w takes the place of the axis your slice hides.
 const FRAMES = [[3, 1, 2], [0, 3, 2], [0, 1, 3], [0, 1, 2]];
 
+const VIEW_DESC = {
+  slice: '<b>Slice</b> shows only the 3D board your slice is in. Moves into other layers leave it: with a piece selected, the layer buttons count its moves in each layer. Q and E step kata and ana.',
+  stack: '<b>Stack</b> shows all four 3D boards side by side, kata on the left and ana on the right, like the panels of a 4D scan. The gaps between them are only for display: neighboring boards are one step apart.',
+  shadow: '<b>Shadow</b> is a 4D perspective projection: the eye is ana of the board, so the four 3D boards nest inside each other, kata smallest in the middle and ana largest outside.',
+};
+
 function main() {
   const view = $('view');
 
@@ -34,28 +39,26 @@ function main() {
   // stand: trek | plain, remembered per browser.
   let stand = 'trek';
   try { if (localStorage.getItem('chess4d-stand') === 'plain') stand = 'plain'; } catch (_) {}
-  const S = { mode: 'stack', ana: 3, layer: 0, opponent: 'computer', stand };
+  const S = { get mode() { return stage.mode(); }, ana: 3, layer: 0, opponent: 'computer', stand };
   const style = () => STYLES[S.stand];
   let game = newGame(), log = [], state = 'play', lastMove = null;
   let selected = -1, targets = new Map(), hover = -1, thinking = false, token = 0;
 
   /* ---------- scene ---------- */
-  const renderer = createRenderer(view, 'the board');
-  if (!renderer) return;
-  const scene = new THREE.Scene(), BG = new THREE.Color(tok('--ground'));
-  scene.background = BG;
-  scene.fog = new THREE.Fog(BG, 34, 80);
+  // the stage (stage.js) has the renderer, camera, orbit controls and the view buttons; a change of view or a resize
+  // frames the camera here
+  const stage = createStage({
+    what: 'the board', fov: 40, near: 0.1, fog: [34, 80], distance: [3, 70], mode: 'stack', viewDesc: VIEW_DESC,
+    onMode: (m, prev) => { if (m !== prev) { refresh(); frameCamera(); } },
+    onResize: () => { if (!stage.orbited) frameCamera(0); },
+  });
+  if (!stage) return;
+  const { renderer, scene, BG, camera, controls, cam } = stage;
   roomEnvironment(renderer, scene);   // reflections for the chrome
   scene.add(new THREE.HemisphereLight(0xdfe7ff, 0x1a2230, 0.3));
   const sun = new THREE.DirectionalLight(0xffffff, 0.55);
   sun.position.set(5, 14, 9);
   scene.add(sun);
-  const camera = new THREE.PerspectiveCamera(40, 1, 0.1, 200);
-  const controls = new OrbitControls(camera, renderer.domElement);
-  controls.enableDamping = true; controls.minDistance = 3; controls.maxDistance = 70;
-  const cam = cameraTween(camera, controls);
-  let orbited = false;
-  controls.addEventListener('start', () => { orbited = true; });
 
   const std = (c, o) => new THREE.MeshStandardMaterial({ color: new THREE.Color(tok(c)), ...o });
   const flat = (c, opacity) => new THREE.MeshBasicMaterial({ color: new THREE.Color(tok(c)), transparent: true, opacity, depthWrite: false, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
@@ -245,11 +248,6 @@ function main() {
   const hudStatus = $('hud-status'), hudHover = $('hud-hover'), stateEl = $('state');
   const layerBtns = [...$('layers').children];
   layerBtns.forEach(b => { b.innerHTML = '<span></span><span class="badge"></span>'; });
-  const VIEW_DESC = {
-    slice: '<b>Slice</b> shows only the 3D board your slice is in. Moves into other layers leave it: with a piece selected, the layer buttons count its moves in each layer. Q and E step kata and ana.',
-    stack: '<b>Stack</b> shows all four 3D boards side by side, kata on the left and ana on the right, like the panels of a 4D scan. The gaps between them are only for display: neighboring boards are one step apart.',
-    shadow: '<b>Shadow</b> is a 4D perspective projection: the eye is ana of the board, so the four 3D boards nest inside each other, kata smallest in the middle and ana largest outside.',
-  };
   function refresh() {
     const side = game.turn === WHITE ? 'White' : 'Black', other = game.turn === WHITE ? 'Black' : 'White';
     const text = state === 'checkmate' ? `Checkmate · ${other} wins` : state === 'stalemate' ? 'Stalemate · draw' : state === 'draw' ? 'Draw'
@@ -257,7 +255,7 @@ function main() {
     stateEl.textContent = hudStatus.textContent = text;
     stateEl.classList.toggle('on', state !== 'play' || thinking);
     hudStatus.classList.toggle('check', state === 'check' || state === 'checkmate');
-    press('view-mode', S.mode); press('ana', String(S.ana)); press('opponent', S.opponent); press('stand', S.stand);
+    press('ana', String(S.ana)); press('opponent', S.opponent); press('stand', S.stand);
     const A = AXES[S.ana], counts = [0, 0, 0, 0];
     for (const to of targets.keys()) counts[coords(to)[S.ana]]++;
     layerBtns.forEach((b, k) => {
@@ -267,7 +265,6 @@ function main() {
       b.classList.toggle('here', !!lastMove && coords(lastMove.to)[S.ana] === k);
       b.title = (counts[k] ? `${counts[k]} move${counts[k] > 1 ? 's' : ''} for the selected piece in this layer. ` : '') + (lastMove && coords(lastMove.to)[S.ana] === k ? 'The last move landed here.' : '');
     });
-    $('view-desc').innerHTML = VIEW_DESC[S.mode];
     $('slice-note').textContent = `Your slice is perpendicular to ${A}, so the board shows as four 3D boards, ${A} = 1 to 4 from left to right${S.ana === 3 ? '' : `, with w in ${A}’s place on screen`}. Moves along ${A} jump between boards. Pick another axis to cut the same position another way.`;
     $('opp-note').textContent = S.opponent === 'computer' ? 'The computer plays black. It looks two moves ahead and follows captures through.' : 'Take turns on this device.';
     $('undo').disabled = !game.history.length;
@@ -308,9 +305,7 @@ function main() {
   el.addEventListener('pointermove', e => { if (!e.buttons) setHover(pick(e)); });
   el.addEventListener('pointerleave', () => setHover(-1));
 
-  function setMode(m) { if (m === S.mode) return; S.mode = m; refresh(); frameCamera(); }
   function setLayer(k) { S.layer = Math.max(0, Math.min(3, k)); refresh(); }
-  onButton('view-mode', b => setMode(b.dataset.v));
   onButton('ana', b => { S.ana = +b.dataset.v; refresh(); });
   onButton('layers', b => setLayer(+b.dataset.v));
   $('opponent').addEventListener('click', e => {
@@ -332,8 +327,7 @@ function main() {
   $('undo').addEventListener('click', takeBack);
   window.addEventListener('keydown', e => {
     if (e.metaKey || e.ctrlKey || e.altKey) return;
-    if (VIEW_KEYS[e.code]) setMode(VIEW_KEYS[e.code]);
-    else if (e.code === 'KeyE') setLayer(S.layer + 1);
+    if (e.code === 'KeyE') setLayer(S.layer + 1);
     else if (e.code === 'KeyQ') setLayer(S.layer - 1);
     else if (e.code === 'Escape') click(-1);
   });
@@ -359,13 +353,6 @@ function main() {
     const to = [at, at.clone().addScaledVector(dir, d)];
     if (dur) cam.go(to, dur);
     else { cam.set(to); controls.update(); }   // there at once, before the next frame
-  }
-  function resize() {
-    const w = view.clientWidth, h = view.clientHeight;
-    if (!w || !h) return;
-    renderer.setSize(w, h, false);
-    camera.aspect = w / h; camera.updateProjectionMatrix();
-    if (!orbited) frameCamera(0);
   }
   const tagEls = [...$('tower-tags').children], _v = new THREE.Vector3();
   function placeTags() {
@@ -396,20 +383,8 @@ function main() {
   syncPieces();
   refresh();
   for (const o of movers()) snap(o);
-  new ResizeObserver(resize).observe(view);
-  resize();
-  let last = performance.now();
-  function frame(now) {
-    const dt = Math.min(0.05, (now - last) / 1000);
-    last = now;
-    settle(dt);
-    cam.step(dt);
-    controls.update();
-    placeTags();
-    renderer.render(scene, camera);
-    requestAnimationFrame(frame);
-  }
-  requestAnimationFrame(frame);
+  stage.showMode();
+  stage.start({ before: settle, after: placeTags });
 }
 
 main();
