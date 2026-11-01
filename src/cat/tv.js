@@ -4,7 +4,7 @@
 // is the YouTube player itself, which main.js lays on the screen with CSS3DRenderer.
 import * as THREE from 'three';
 import { mergeBufferGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { tesseract } from '../shapes.js';
+import { tesseract } from '../shapes/shapes.js';
 
 // The cabinet's half-sizes along its own x, y, z and w; the screen, 16:9, is screenW wide and `px` pixels across.
 export const TV = { half: [2.2, 1.4, 0.4, 0.7], screenW: 3.84, px: 640 };

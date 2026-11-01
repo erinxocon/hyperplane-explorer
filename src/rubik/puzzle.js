@@ -1,15 +1,16 @@
 // The 4D Rubik's cube on the explorer page: how it is drawn in each view, and its panel. The puzzle itself is cube.js.
-// createPuzzle(o, ctx) takes its WORLD entry o (center, pitch, size, group) and what it needs from the page:
-//   frame()            the display frame V, which drawing and measuring read
-//   local, sectionPoints, sectionGeometry, setGeo   the page's sectioning and geometry helpers
-//   mode(), volOn()    the view (slice, stack, shadow) and whether volume view is on
-//   reduceMotion, redraw()   whether to animate, and how to ask for a rebuild
-//   S, startJump, setVolume, frameOn(center, scale, dur)   for Face this layer and Diagonal view, which move you and
-//                      the camera
+// createPuzzle(o, ctx) takes its WORLD entry o (center, pitch, size, group) and what it needs from the page that shows
+// it, so it can go on any page:
+//   frame(), mode(), volOn()   the display frame V, the view (slice, stack, shadow), whether volume view is on
+//   redraw()                   ask for the world to be redrawn
+//   S, startJump, setVolume, frameOn(center, scale, dur)   your frame, and the actions Face this layer and Diagonal
+//                              view take: moving you, leaving volume view, turning the camera
 // and returns { rebuild, step, explain, updatePanel }.
 import * as THREE from 'three';
 import { add, sub, mul, dot, mv } from '../math4d.js';
-import { tesseract } from '../shapes.js';
+import { tesseract } from '../shapes/shapes.js';
+import { local, sectionPoints, sectionGeometry, setGeo } from '../shapes/draw.js';
+import { $, reduceMotion, onButton } from '../utils.js';
 import { createCube, CELL_COLORS, colOf } from './cube.js';
 
 const AX = 'XYZW', TESS = tesseract();
@@ -29,7 +30,7 @@ const EXPLAIN = {
 };
 
 export function createPuzzle(o, ctx) {
-  const cube = createCube(), $ = id => document.getElementById(id);
+  const cube = createCube(), S = ctx.S;   // your frame: the same object for the page's life
   o.mesh = new THREE.Mesh(new THREE.BufferGeometry(), new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 0.42, metalness: 0.0, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 }));
   o.lines = new THREE.LineSegments(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: 0x05070a }));
   o.hiLines = new THREE.LineSegments(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: 0xc4a7ff }));
@@ -51,9 +52,9 @@ export function createPuzzle(o, ctx) {
       for (const { p, M, sel } of pieces) {
         const W = TESS.verts.map(v => add(o.center, mul(mv(M, add(p.h, mul(v, half))), o.pitch)));
         for (const pn of panels) {
-          const { pts, dA } = ctx.sectionPoints(W, TESS.edges, pn.off);
+          const { pts, dA } = sectionPoints(V, W, TESS.edges, pn.off);
           if (Math.min(...dA) > 0 || Math.max(...dA) < 0) continue;
-          const g = ctx.sectionGeometry(pts);
+          const g = sectionGeometry(pts);
           if (!g || g.kind !== 'solid') continue;
           const pa = g.geo.getAttribute('position'), na = g.geo.getAttribute('normal');
           for (let t = 0; t < pa.count; t += 3) {
@@ -77,15 +78,15 @@ export function createPuzzle(o, ctx) {
         }
       }
     }
-    ctx.setGeo(o.mesh, { position: pos, normal: nrm, color: col });
-    ctx.setGeo(o.lines, { position: lin });
-    ctx.setGeo(o.hiLines, { position: hil });
+    setGeo(o.mesh, { position: pos, normal: nrm, color: col });
+    setGeo(o.lines, { position: lin });
+    setGeo(o.hiLines, { position: hil });
   }
 
   // Shadow: 4D perspective projection along ana. Every sticker is a small 3-cube lying in its cell; the eye sits
   // SHADOW_E ana of the puzzle center, so points further kata shrink toward the middle.
   function drawShadow(V, pieces, pos, nrm, col, hil) {
-    const C = o.center, base3 = ctx.local(C);
+    const C = o.center, base3 = local(V, C);
     const proj = X => {
       const r = sub(X, C), k = SHADOW_E / Math.max(0.35, SHADOW_E - dot(r, V.A));
       return new THREE.Vector3(base3.x + dot(r, V.R) * k, base3.y + dot(r, V.U) * k, base3.z - dot(r, V.F) * k);
@@ -149,14 +150,8 @@ export function createPuzzle(o, ctx) {
     const b = e.target.closest('button[data-dir]');
     if (b) { cube.twist(+b.dataset.i, +b.dataset.j, +b.dataset.dir); updatePanel(); }
   });
-  $('rk-axis').addEventListener('click', e => {
-    const b = e.target.closest('button');
-    if (b) { cube.axis = +b.dataset.v; renderPlanes(); updatePanel(); ctx.redraw(); }
-  });
-  $('rk-val').addEventListener('click', e => {
-    const b = e.target.closest('button');
-    if (b) { cube.val = +b.dataset.v; updatePanel(); ctx.redraw(); }
-  });
+  onButton('rk-axis', b => { cube.axis = +b.dataset.v; renderPlanes(); updatePanel(); ctx.redraw(); });
+  onButton('rk-val', b => { cube.val = +b.dataset.v; updatePanel(); ctx.redraw(); });
   $('rk-scramble').addEventListener('click', () => { cube.scramble(); updatePanel(); });
   $('rk-reset').addEventListener('click', () => { cube.reset(); updateSpinBtn(); updatePanel(); ctx.redraw(); });
   spinBtn.addEventListener('click', () => {
@@ -174,14 +169,14 @@ export function createPuzzle(o, ctx) {
     clearTricks();
     if (ctx.volOn()) ctx.setVolume(false);
     explain('diag'); frame(1.3);
-    const S = ctx.S, s2 = Math.SQRT2, s3 = Math.sqrt(3), s6 = Math.sqrt(6);
+    const s2 = Math.SQRT2, s3 = Math.sqrt(3), s6 = Math.sqrt(6);
     const to = { R: [1 / s2, 0, -1 / s2, 0], F: [1 / s6, 0, 1 / s6, -2 / s6], A: [1 / s3, 0, 1 / s3, 1 / s3] };
     ctx.startJump({ from: S.P.slice(), to: sub([o.center[0], 0, o.center[2], o.center[3]], mul(to.F, 3.2)), t: 0, dur: 1.3, frame: { from: { R: S.R, F: S.F, A: S.A }, to } });
   });
   // Face this layer: turn ana onto the layer's axis and move into the layer (a Y layer only in volume view, which slices level)
   $('rk-goto').addEventListener('click', () => {
     clearTricks();
-    const S = ctx.S, T = o.center.slice();
+    const T = o.center.slice();
     T[cube.axis] += cube.val * o.pitch;
     if (ctx.volOn() && cube.axis === 1) {
       explain('faceY'); frame(1.1);
@@ -205,7 +200,7 @@ export function createPuzzle(o, ctx) {
 
   // Advance the cube's animations; true if it needs redrawing.
   function step(dt) {
-    const { moved, settled } = cube.step(dt, ctx.reduceMotion);
+    const { moved, settled } = cube.step(dt, reduceMotion);
     if (settled) updatePanel();
     return moved;
   }

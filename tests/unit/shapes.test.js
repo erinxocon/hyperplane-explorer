@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { sub, dot } from '../../src/math4d.js';
-import { tesseract, cell16, cell24, cell5, duoprism, cell600, klein, kleinPoint, spunKleinFiber, mobius4 } from '../../src/shapes.js';
+import { tesseract, cell16, cell24, cell5, duoprism, cell600, klein, kleinPoint, spunKleinFiber, mobius4 } from '../../src/shapes/shapes.js';
 
 const degrees = s => { const d = s.verts.map(() => 0); s.edges.forEach(([i, j]) => { d[i]++; d[j]++; }); return d; };
 const regular = (s, nv, ne, deg) => { assert.equal(s.verts.length, nv); assert.equal(s.edges.length, ne); assert.ok(degrees(s).every(x => x === deg)); };

@@ -1,4 +1,4 @@
-import { sub, dot } from './math4d.js';
+import { sub, dot } from '../math4d.js';
 
 // Regular and uniform 4-polytopes as { verts, edges }, centered at the origin.
 export function tesseract() {
