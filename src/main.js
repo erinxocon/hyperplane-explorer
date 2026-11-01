@@ -8,6 +8,7 @@ import { tesseract, cell16, cell24, cell5, duoprism, cell600, klein, spunKlein, 
 import { createViewer, bindControls } from './viewer.js';
 import { tok, createFloor, createMarker, depthShade, tubeMatrix, knobMatrix } from './scenery.js';
 import { createReadout, createCompass, drawRulerRow, stackLabels as labelsFor, stackOffs, placeStackTags } from './hud.js';
+import { createPuzzle } from './rubik/puzzle.js';
 import GLOBE_VS from './shaders/globe.vert.glsl?raw';
 import GLOBE_FS from './shaders/globe.frag.glsl?raw';
 import SURF_VS from './shaders/earth-cap.vert.glsl?raw';
@@ -107,10 +108,7 @@ function main() {
     o.group = new THREE.Group();
     scene.add(o.group);
     if (o.puzzle) {
-      o.mesh = new THREE.Mesh(new THREE.BufferGeometry(), new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 0.42, metalness: 0.0, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 }));
-      o.lines = new THREE.LineSegments(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: 0x05070a }));
-      o.hiLines = new THREE.LineSegments(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: 0xc4a7ff }));
-      o.group.add(o.mesh, o.lines, o.hiLines);
+      // its render objects are made by rubik/puzzle.js, below
     } else if (o.globe) {
       o.uni = {
         uCx: { value: new THREE.Vector4() }, uCy: { value: new THREE.Vector4() }, uCz: { value: new THREE.Vector4() },
@@ -513,144 +511,11 @@ function main() {
     drawTubes(o, segs);
   }
 
-  /* ---------- 4D Rubik's cube (3x3x3x3) ---------- */
-  // Each piece is a small tesseract at home position h in {-1,0,1}^4 with an integer rotation M.
-  // Its current center is M·h. A sticker sits on home facet (axis i, sign) whenever h[i] == sign.
-  const CELL_COLORS = ['#f08a2c', '#e3443c', '#f2cf35', '#eceee9', '#2f6ee0', '#2fae54', '#e862a8', '#9a62e8']; // -X +X -Y +Y -Z +Z -W +W
-  const CELL_RGB = CELL_COLORS.map(c => new THREE.Color(c));
-  const PLASTIC = new THREE.Color('#12151c'), PLASTIC_HI = new THREE.Color('#2b2f45');
-  const TESS = tesseract();
-  const cubies = [];
-  for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) for (let c = -1; c <= 1; c++) for (let d = -1; d <= 1; d++)
-    if (a || b || c || d) cubies.push({ h: [a, b, c, d], M: ident() });
-  const RK = { axis: 0, val: 1, queue: [], anim: null, moves: 0, mode: 'slice', O: ident(), spin: { on: false, stopping: false, t: 0, target: 0 }, mirror: null };
-  // RK.O is a whole-puzzle rotation applied for display. Integer ones get baked into the pieces.
-  const isIntMat = M => M.every(x => Math.abs(x - Math.round(x)) < 1e-6);
-  const isIdent = M => M.every((x, i) => Math.abs(x - (i % 5 === 0 ? 1 : 0)) < 1e-9);
-  const planeRotM = (u, v, a) => {
-    const c = Math.cos(a) - 1, s = Math.sin(a), M = ident();
-    for (let r = 0; r < 4; r++) for (let k = 0; k < 4; k++) M[r * 4 + k] += c * (u[r] * u[k] + v[r] * v[k]) + s * (v[r] * u[k] - u[r] * v[k]);
-    return M;
-  };
-  const spinM = t => mm(rot(0, 1, t), rot(2, 3, t));     // isoclinic: X–Y and Z–W at the same rate
-  const displayO = () => (RK.spin.on || RK.spin.stopping) ? mm(spinM(RK.spin.t), RK.O) : RK.O;
-  const colOf = (M, i) => [M[i], M[4 + i], M[8 + i], M[12 + i]];
-  const inLayer = (c, axis, val) => Math.round(mv(c.M, c.h)[axis]) === val;
-
-  function buildPuzzle(o) {
-    const d = dot(sub(o.center, V.P), V.A);
-    const m = 1.5 * o.pitch * V.A.reduce((acc, v) => acc + Math.abs(v), 0);
-    o.range = [d - m, d + m];
-    const pos = [], nrm = [], col = [], lin = [], hil = [];
-    const half = o.size / 2, an = RK.anim, Od = displayO();
-    const tw = an ? rot(an.move.i, an.move.j, an.angle) : null;
-    const pieces = cubies.map(c => {
-      const moving = an && inLayer(c, an.move.axis, an.move.val);
-      return { c, M: mm(Od, moving ? mm(tw, c.M) : c.M), sel: inLayer(c, RK.axis, RK.val) };
-    });
-    if (VIEW.mode === 'stack') o.stackInfo = { spacing: 3 * o.pitch + 0.8, bottom: -1.25, labels: VOL.on ? ['one layer up', 'through center', 'one layer down'] : ['one layer kata', 'through center', 'one layer ana'] };
-    if (VIEW.mode === 'shadow') buildShadow(o, pieces, pos, nrm, col, hil);
-    else {
-      // slice: your own cut. stack: three cuts one layer apart along ana, centered on the puzzle, side by side.
-      const panels = VIEW.mode === 'stack'
-        ? [-1, 0, 1].map(k => ({ off: d + k * o.pitch, shift: k * (3 * o.pitch + 0.8) }))
-        : (o.range[0] < 0 && o.range[1] > 0 ? [{ off: 0, shift: 0 }] : []);
-      for (const p of pieces) {
-        const W = TESS.verts.map(v => add(o.center, mul(mv(p.M, add(p.c.h, mul(v, half))), o.pitch)));
-        for (const pn of panels) {
-          const { pts, dA } = sectionPoints(W, TESS.edges, pn.off);
-          if (Math.min(...dA) > 0 || Math.max(...dA) < 0) continue;
-          const g = sectionGeometry(pts);
-          if (!g || g.kind !== 'solid') continue;
-          const pa = g.geo.getAttribute('position'), na = g.geo.getAttribute('normal');
-          for (let t = 0; t < pa.count; t += 3) {
-            // which facet of this piece does the triangle lie on? map its centroid back to the piece's home frame
-            const cx = (pa.getX(t) + pa.getX(t + 1) + pa.getX(t + 2)) / 3, cy = (pa.getY(t) + pa.getY(t + 1) + pa.getY(t + 2)) / 3, cz = (pa.getZ(t) + pa.getZ(t + 1) + pa.getZ(t + 2)) / 3;
-            const X = add(add(add(add(V.P, mul(V.R, cx)), mul(V.U, cy)), mul(V.F, -cz)), mul(V.A, pn.off));
-            const u = mul(sub(X, o.center), 1 / o.pitch);
-            const l = [0, 1, 2, 3].map(k => dot(colOf(p.M, k), u) - p.c.h[k]);       // M^T u - h
-            let ax = 0; for (let k = 1; k < 4; k++) if (Math.abs(l[k]) > Math.abs(l[ax])) ax = k;
-            const sg = l[ax] > 0 ? 1 : -1;
-            const rgb = p.c.h[ax] === sg ? CELL_RGB[ax * 2 + (sg > 0)] : (p.sel ? PLASTIC_HI : PLASTIC);
-            for (let k = 0; k < 3; k++) {
-              pos.push(pa.getX(t + k) + pn.shift, pa.getY(t + k), pa.getZ(t + k));
-              nrm.push(na.getX(t + k), na.getY(t + k), na.getZ(t + k));
-              col.push(rgb.r, rgb.g, rgb.b);
-            }
-          }
-          const ea = g.edges.getAttribute('position');
-          const target = p.sel ? hil : lin;
-          for (let k = 0; k < ea.count; k++) target.push(ea.getX(k) + pn.shift, ea.getY(k), ea.getZ(k));
-          g.geo.dispose(); g.edges.dispose();
-        }
-      }
-    }
-    setGeo(o.mesh, { position: pos, normal: nrm, color: col });
-    setGeo(o.lines, { position: lin });
-    setGeo(o.hiLines, { position: hil });
-  }
-
-  // Shadow: 4D perspective projection along ana. Every sticker is a small 3-cube lying in its cell;
-  // the eye sits SHADOW_E ana of the puzzle center, so points further kata shrink toward the middle.
-  const SHADOW_E = 3.0, STICKER = 0.22, CELL_SHRINK = 0.8;
-  function buildShadow(o, pieces, pos, nrm, col, hil) {
-    const C = o.center, base3 = local(C);
-    const proj = X => {
-      const r = sub(X, C), k = SHADOW_E / Math.max(0.35, SHADOW_E - dot(r, V.A));
-      return new THREE.Vector3(base3.x + dot(r, V.R) * k, base3.y + dot(r, V.U) * k, base3.z - dot(r, V.F) * k);
-    };
-    const tmp = new THREE.Vector3(), e1 = new THREE.Vector3(), e2 = new THREE.Vector3();
-    for (const p of pieces) for (let i = 0; i < 4; i++) {
-      const s = p.c.h[i]; if (!s) continue;
-      if (dot(mul(colOf(p.M, i), s), V.A) > 0.6) continue;   // the cell facing the eye would wrap around everything
-      const rgb = CELL_RGB[i * 2 + (s > 0)];
-      const oth = [0, 1, 2, 3].filter(k => k !== i);
-      const ctr = p.c.h.map((v, k) => k === i ? v + s * 0.5 : v * CELL_SHRINK);
-      const Q = [];
-      for (let b = 0; b < 8; b++) {
-        const v = ctr.slice();
-        for (let k = 0; k < 3; k++) v[oth[k]] += (b >> k & 1) ? STICKER : -STICKER;
-        Q.push(proj(add(C, mul(mv(p.M, v), o.pitch))));
-      }
-      const cen = Q.reduce((a, q) => a.add(q), new THREE.Vector3()).multiplyScalar(1 / 8);
-      for (let k = 0; k < 3; k++) {
-        const a1 = (k + 1) % 3, a2 = (k + 2) % 3;
-        for (const side of [0, 1]) {
-          const q = [[0, 0], [1, 0], [1, 1], [0, 1]].map(([x, y]) => Q[(side << k) | (x << a1) | (y << a2)]);
-          e1.subVectors(q[1], q[0]); e2.subVectors(q[2], q[0]);
-          const nn = new THREE.Vector3().crossVectors(e1, e2).normalize();
-          if (nn.dot(tmp.subVectors(q[0], cen)) < 0) { q.reverse(); nn.negate(); }
-          for (const j of [0, 1, 2, 0, 2, 3]) { pos.push(q[j].x, q[j].y, q[j].z); nrm.push(nn.x, nn.y, nn.z); col.push(rgb.r, rgb.g, rgb.b); }
-        }
-      }
-      if (p.sel) for (let k = 0; k < 3; k++) for (let b = 0; b < 8; b++) if (!(b >> k & 1)) {
-        const q0 = Q[b], q1 = Q[b | (1 << k)]; hil.push(q0.x, q0.y, q0.z, q1.x, q1.y, q1.z);
-      }
-    }
-  }
-
-  function tryBake() {
-    if (RK.mirror || RK.spin.on || RK.spin.stopping || RK.anim || RK.queue.length) return;
-    if (isIdent(RK.O) || !isIntMat(RK.O)) return;
-    const O = RK.O.map(Math.round);
-    cubies.forEach(c => { c.M = mm(O, c.M).map(Math.round); });
-    RK.O = ident(); dirty = true; updatePuzzlePanel();
-  }
-
-  function finishTwist(move) {
-    const R90 = rot(move.i, move.j, move.dir * Math.PI / 2);
-    for (const c of cubies) if (inLayer(c, move.axis, move.val)) c.M = mm(R90, c.M).map(Math.round);
-  }
-  function isSolved() {
-    const seen = {};
-    for (const c of cubies) for (let i = 0; i < 4; i++) {
-      if (!c.h[i]) continue;
-      const v = mul(colOf(c.M, i), c.h[i]);
-      const k = v.findIndex(x => x !== 0), key = k * 2 + (v[k] > 0), color = i * 2 + (c.h[i] > 0);
-      if (seen[key] === undefined) seen[key] = color; else if (seen[key] !== color) return false;
-    }
-    return true;
-  }
+  /* ---------- 4D Rubik's cube: rubik/ ---------- */
+  const puzzle = createPuzzle(WORLD.find(o => o.puzzle), {
+    frame: () => V, local, sectionPoints, sectionGeometry, setGeo, mode: () => VIEW.mode, volOn: () => VOL.on,
+    reduceMotion, redraw: () => { dirty = true; }, S, startJump, setVolume, frameOn,
+  });
 
   function buildGlomeShadow(o, spinM) {
     const proj = projector(o.center, 1.6 * o.radius);
@@ -696,7 +561,7 @@ function main() {
     // a fiber list's half-extent from its center along unit direction e, for Stack's spacing and labels
     const fiberHalf = (o, F, e) => Math.max(...fiberExtent(F, e, o.center).map(x => Math.max(-x[0], x[1])));
     for (const o of WORLD) {
-      if (o.puzzle) { buildPuzzle(o); continue; }
+      if (o.puzzle) { puzzle.rebuild(); continue; }
       const mode = VIEW.mode, M = o.orient && (spinM ? mm(spinM, o.orient) : o.orient);
       if (o.globe) {
         const q = sub(V.P, o.center), d = -dot(q, V.A);
@@ -884,76 +749,12 @@ function main() {
   spinBox.addEventListener('change', () => { dirty = true; });
   document.getElementById('reset').addEventListener('click', () => { you.reset(); jump = null; dirty = true; });
 
-  /* ---------- Rubik panel ---------- */
-  const AX = 'XYZW';
-  const rkState = document.getElementById('rk-state');
-  const rkPlanes = document.getElementById('rk-planes');
-  function updatePuzzlePanel() {
-    document.querySelectorAll('#rk-axis button').forEach(b => b.setAttribute('aria-pressed', +b.dataset.v === RK.axis));
-    document.querySelectorAll('#rk-val button').forEach(b => b.setAttribute('aria-pressed', +b.dataset.v === RK.val));
-    const goto = document.getElementById('rk-goto');
-    const yOnly = RK.axis === 1 && !VOL.on;
-    goto.textContent = yOnly ? 'Slice through layer' : 'Face this layer';
-    goto.title = yOnly ? 'Y layers can’t be faced head-on unless volume view (V) lays your slice level'
-      : RK.axis === 1 ? 'Move your level slice to this layer’s height'
-      : `Turn your slice perpendicular to ${AX[RK.axis]} and move into this layer`;
-    const solved = !RK.anim && !RK.queue.length && isSolved();
-    rkState.textContent = solved ? (RK.moves ? `solved in ${RK.moves}` : 'solved') : (RK.moves ? `${RK.moves} move${RK.moves === 1 ? '' : 's'}` : 'scrambled');
-    rkState.classList.toggle('on', solved && RK.moves > 0);
-  }
-  function renderPlanes() {
-    const rest = [0, 1, 2, 3].filter(k => k !== RK.axis);
-    const pairs = [[rest[0], rest[1]], [rest[0], rest[2]], [rest[1], rest[2]]];
-    rkPlanes.innerHTML = pairs.map(([i, j]) =>
-      `<div class="lbl">Twist<code>${AX[i]}–${AX[j]} plane</code></div>` +
-      `<button class="key" type="button" id="tw-${AX[i]}${AX[j]}-p" data-i="${i}" data-j="${j}" data-dir="1">${AX[i]}→${AX[j]}</button>` +
-      `<button class="key" type="button" id="tw-${AX[i]}${AX[j]}-n" data-i="${i}" data-j="${j}" data-dir="-1">${AX[j]}→${AX[i]}</button>`).join('');
-  }
-  rkPlanes.addEventListener('click', e => {
-    const b = e.target.closest('button[data-dir]'); if (!b) return;
-    RK.queue.push({ axis: RK.axis, val: RK.val, i: +b.dataset.i, j: +b.dataset.j, dir: +b.dataset.dir });
-    RK.moves++; updatePuzzlePanel();
-  });
-  document.getElementById('rk-axis').addEventListener('click', e => {
-    const b = e.target.closest('button'); if (!b) return;
-    RK.axis = +b.dataset.v; renderPlanes(); updatePuzzlePanel(); dirty = true;
-  });
-  document.getElementById('rk-val').addEventListener('click', e => {
-    const b = e.target.closest('button'); if (!b) return;
-    RK.val = +b.dataset.v; updatePuzzlePanel(); dirty = true;
-  });
-  document.getElementById('rk-scramble').addEventListener('click', () => {
-    for (let n = 0; n < 24; n++) {
-      const axis = Math.floor(Math.random() * 4), rest = [0, 1, 2, 3].filter(k => k !== axis);
-      const a = Math.floor(Math.random() * 3), b = (a + 1 + Math.floor(Math.random() * 2)) % 3;
-      RK.queue.push({ axis, val: Math.floor(Math.random() * 3) - 1, i: rest[a], j: rest[b], dir: Math.random() < 0.5 ? 1 : -1, fast: true });
-    }
-    RK.moves = 0; updatePuzzlePanel();
-  });
-  document.getElementById('rk-reset').addEventListener('click', () => {
-    RK.queue.length = 0; RK.anim = null; RK.moves = 0;
-    RK.O = ident(); RK.mirror = null; Object.assign(RK.spin, { on: false, stopping: false, t: 0 });
-    cubies.forEach(c => { c.M = ident(); });
-    updateSpinBtn(); updatePuzzlePanel(); dirty = true;
-  });
-
-  const EXPLAIN = {
-    slice: '<b>Slice.</b> The 3D cross-section your slice cuts through the puzzle. A twist looks like a rigid face turn only when your slice is perpendicular to the layer’s axis. Otherwise pieces cross in and out of your slice and change shape as they go.',
-    stack: '<b>Stack.</b> For the cube the three slices sit exactly one layer apart: kata on the left, ana on the right. With a level slice that is all 81 positions at once. Twist in a plane that includes ana, such as X–W, and pieces leave one panel and arrive in the next: a 4D move seen as travel between neighboring 3D worlds.',
-    shadow: '<b>Shadow.</b> A 4D perspective projection, the view MagicCube4D uses. Each sticker is a small cube. The eye sits ana of the puzzle, so the kata cell is the small cube in the middle, the six side cells are the shells around it, and the cell nearest the eye is hidden because it would wrap around everything. Hold Pitch forward Ana (I) and the puzzle turns inside out as the middle cell swings to the outside.',
-    face: '<b>Face this layer.</b> Ana now points along the layer’s axis, so the layer fills your slice as an ordinary 3×3×3 and all three of its twists are rigid turns. For Y–W twists, pick an X or Z layer. To face a Y layer, switch on Volume view (V) first: it lays your slice level.',
-    faceY: '<b>Face this layer.</b> Volume view slices level, so at the layer’s height the whole Y layer fills your slice as an ordinary 3×3×3. Its X–Z, X–W and Z–W twists are rigid turns.',
-    diag: '<b>Diagonal view.</b> Ana points along (x + z + w)/√3, the 4D version of cutting a cube corner to corner. The section is a hexagonal prism: ±X, ±Z and ±W stickers on the six walls, ±Y on the top and bottom. Every layer crosses this slice, so every twist changes something you can see, though pieces cut at an angle morph as they turn.',
-    mirror: '<b>Mirror via 4D.</b> A half-turn of the whole puzzle in the plane of your right direction and ana. No rotation in 3D can turn an object into its mirror image. A half-turn through a fourth axis does: left and right swap, stickers and all. Halfway through, your slice cuts across the layers it started parallel to. It is exact when your slice passes through the puzzle’s center. Tap again to turn it back.',
-    spin: '<b>Double rotation.</b> The whole puzzle turns in the X–Y and Z–W planes at once, at the same rate. Every point moves and no axis stays fixed, which no 3D rotation can do. Turn it off and it stops at the next quarter-turn, where x has become y and z has become w. Try it in Shadow view.',
-  };
-  const rkExplain = document.getElementById('rk-explain');
-  const explain = k => { rkExplain.innerHTML = EXPLAIN[k]; };
-  function framePuzzle(scale, dur = 0.9) {
+  /* ---------- views and camera ---------- */
+  // turn the camera to 4D point `center` (followed as you move), from a set direction, `scale` times the usual distance
+  function frameOn(center, scale, dur = 0.9) {
     orbited = true;
-    const puz = WORLD.find(w => w.puzzle);
     camTween = { t: 0, dur: reduceMotion ? 0 : dur, fromT: controls.target.clone(), fromP: camera.position.clone(), to: () => {
-      const lc = local(puz.center), toT = new THREE.Vector3(lc.x, lc.y - 0.2, lc.z);
+      const lc = local(center), toT = new THREE.Vector3(lc.x, lc.y - 0.2, lc.z);
       return [toT, toT.clone().add((VIEW.mode === 'stack' ? new THREE.Vector3(0, 2.3, 5.6) : new THREE.Vector3(1.9, 2.2, 5.2)).multiplyScalar(scale))];
     } };
   }
@@ -974,7 +775,7 @@ function main() {
     VIEW.mode = m;
     document.querySelectorAll('#view-mode button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.v === m)));
     viewDesc.innerHTML = VIEW_DESC[m] + (VOL.on ? VOL_DESC : '');
-    explain(m); dirty = true;
+    puzzle.explain(m); dirty = true;
   }
   document.getElementById('view-mode').addEventListener('click', e => { const b = e.target.closest('button'); if (b) setMode(b.dataset.v); });
   const volBox = document.getElementById('volume');
@@ -987,29 +788,9 @@ function main() {
     axHi.textContent = on ? '6 below' : '+6 ana';
     rulerNote.innerHTML = on ? 'Volume view slices level, so each bar is a shape’s extent in height, above to the left. Bars crossing the line intersect your slice. Tap a name to move your slice to that shape’s height; use the eye to show or hide it.' : RULER_NOTE;
     setMode(VIEW.mode);
-    updatePuzzlePanel();
+    puzzle.updatePanel();   // Face this layer reads differently in volume view
   }
   volBox.addEventListener('change', () => setVolume(volBox.checked));
-  const spinBtn = document.getElementById('rk-spin');
-  function updateSpinBtn() { spinBtn.setAttribute('aria-pressed', String(RK.spin.on)); }
-  spinBtn.addEventListener('click', () => {
-    const sp = RK.spin;
-    if (RK.mirror) return;
-    if (sp.on) { sp.on = false; sp.stopping = true; sp.target = Math.ceil(sp.t / (Math.PI / 2) - 1e-9) * (Math.PI / 2); }
-    else { sp.on = true; sp.stopping = false; explain('spin'); }
-    updateSpinBtn();
-  });
-  document.getElementById('rk-mirror').addEventListener('click', () => {
-    if (RK.mirror || RK.spin.on || RK.spin.stopping) return;
-    RK.mirror = { u: V.R.slice(), v: V.A.slice(), base: RK.O.slice(), t: 0 };
-    explain('mirror');
-  });
-  function clearTricks() {
-    Object.assign(RK.spin, { on: false, stopping: false, t: 0 });
-    RK.mirror = null;
-    if (!isIntMat(RK.O)) RK.O = ident();
-    updateSpinBtn(); dirty = true;
-  }
   document.getElementById('rk-solo').addEventListener('click', () => {
     const others = WORLD.filter(w => !w.puzzle);
     const showingOthers = others.some(w => !w.hidden);
@@ -1024,46 +805,19 @@ function main() {
   };
   const frameMat = f => [...f.R, 0, 1, 0, 0, ...f.F, ...f.A];
   const snapFrame = () => { for (const k of ['R', 'U', 'F', 'A']) S[k] = S[k].map(x => Math.abs(x) < 1e-9 ? 0 : Math.abs(Math.abs(x) - 1) < 1e-9 ? Math.sign(x) : x); };
-  document.getElementById('rk-diag').addEventListener('click', () => {
-    clearTricks(); if (VOL.on) setVolume(false); explain('diag'); framePuzzle(VIEW.mode === 'stack' ? 1.6 : 1, 1.3);
-    const o = WORLD.find(w => w.puzzle);
-    const s2 = Math.SQRT2, s3 = Math.sqrt(3), s6 = Math.sqrt(6);
-    const to = { R: [1 / s2, 0, -1 / s2, 0], F: [1 / s6, 0, 1 / s6, -2 / s6], A: [1 / s3, 0, 1 / s3, 1 / s3] };
-    const P = sub([o.center[0], 0, o.center[2], o.center[3]], mul(to.F, 3.2));
-    const opposite = !slerp(frameMat({ R: S.R, F: S.F, A: S.A }), frameMat(to), 0.5); // exactly 180 degrees away: no unique path
-    if (opposite) { S.R = to.R; S.F = to.F; S.A = to.A; S.U = [0, 1, 0, 0]; S.P = P; jump = null; dirty = true; return; }
-    startJump({ from: S.P.slice(), to: P, t: 0, dur: 1.3, frame: { from: { R: S.R, F: S.F, A: S.A }, to } });
-  });
-  document.getElementById('rk-goto').addEventListener('click', () => {
-    clearTricks();
-    const o = WORLD.find(w => w.puzzle);
-    const T = o.center.slice(); T[RK.axis] += RK.val * o.pitch;
-    if (VOL.on && RK.axis === 1) {
-      // volume view already slices level: just move to the layer's height
-      explain('faceY'); framePuzzle(VIEW.mode === 'stack' ? 1.6 : 1, 1.1);
-      startJump({ from: S.P.slice(), to: add(S.P, mul(S.U, T[1] - S.P[1])), t: 0 });
-      return;
-    }
-    if (VOL.on) setVolume(false);
-    explain('face'); framePuzzle(VIEW.mode === 'stack' ? 1.6 : 1, 1.1);
-    let turn = null, Af = S.A;
-    if (RK.axis !== 1) {
-      // turn ana onto the layer axis (sign chosen for the shorter turn), within the x–z–w subspace
-      const ek = [0, 0, 0, 0]; ek[RK.axis] = 1;
-      const e = mul(ek, dot(S.A, ek) < 0 ? -1 : 1);
-      const c = dot(S.A, e), wv = sub(e, mul(S.A, c)), sn = Math.hypot(...wv);
-      if (sn > 1e-6) { turn = { R: S.R, F: S.F, A: S.A, v: mul(wv, 1 / sn), theta: Math.atan2(sn, c) }; Af = e; }
-    }
-    startJump({ from: S.P.slice(), to: add(S.P, mul(Af, dot(sub(T, S.P), Af))), t: 0, turn, dur: turn ? 1.1 : 0.6 });
-  });
-  renderPlanes(); updatePuzzlePanel(); setMode('slice'); syncSolo();
+  setMode('slice'); syncSolo();
 
   /* ---------- jumps ---------- */
   // A jump moves you from `from` to `to`, optionally turning your slice: `turn` is one plane rotation (Face this layer),
-  // `frame` a whole new frame (Diagonal view). With reduced motion it lands at once.
-  function startJump(j) { jump = j; if (reduceMotion) stepJump(0); }
+  // `frame` a whole new frame (Diagonal view). With reduced motion it lands at once, and so does a frame exactly 180°
+  // away, which has no single shortest path (slerp gives none).
+  function startJump(j) {
+    jump = j;
+    j.instant = reduceMotion || (j.frame && !slerp(frameMat(j.frame.from), frameMat(j.frame.to), 0.5));
+    if (j.instant) stepJump(0);
+  }
   function stepJump(dt) {
-    jump.t = reduceMotion ? 1 : Math.min(1, jump.t + dt / (jump.dur || 0.6));
+    jump.t = jump.instant ? 1 : Math.min(1, jump.t + dt / (jump.dur || 0.6));
     const e = ease(jump.t);
     S.P = lerp(jump.from, jump.to, e);
     if (jump.frame) {
@@ -1110,31 +864,7 @@ function main() {
     const volT = VOL.t;
     you.step(dt, reduceMotion);   // volume view's tween, one second each way
     if (VOL.t !== volT) dirty = true;
-    if (!RK.anim && RK.queue.length) {
-      const move = RK.queue.shift();
-      RK.anim = { move, t: 0, angle: 0, dur: reduceMotion ? 0 : move.fast ? 0.09 : 0.28 };
-    }
-    if (RK.anim) {
-      const a = RK.anim;
-      a.t = a.dur ? Math.min(1, a.t + dt / a.dur) : 1;
-      a.angle = a.move.dir * Math.PI / 2 * ease(a.t);
-      if (a.t >= 1) { finishTwist(a.move); RK.anim = null; updatePuzzlePanel(); }
-      dirty = true;
-    }
-    if (RK.mirror) {
-      const mr = RK.mirror;
-      mr.t = reduceMotion ? 1 : Math.min(1, mr.t + dt / 1.8);
-      RK.O = mm(planeRotM(mr.u, mr.v, Math.PI * ease(mr.t)), mr.base);
-      if (mr.t >= 1) RK.mirror = null;
-      dirty = true;
-    }
-    if (RK.spin.on || RK.spin.stopping) {
-      const sp = RK.spin;
-      sp.t += dt * 0.55;
-      if (sp.stopping && sp.t >= sp.target) { RK.O = mm(spinM(sp.target), RK.O); sp.t = 0; sp.stopping = false; }
-      dirty = true;
-    }
-    tryBake();
+    if (puzzle.step(dt)) dirty = true;
     if (spinBox.checked) { spinT += dt; dirty = true; }
     if (dirty) { dirty = false; rebuild(); }
     if (camTween) {

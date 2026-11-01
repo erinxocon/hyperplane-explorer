@@ -10,7 +10,7 @@ Vanilla JS + three.js **r147**, bundled with Vite. There's no framework and no T
 - `npm run build` writes a static build to `dist/`. `base: './'`, so it works from any path. `vite.config.js` lists all three pages as inputs and puts three.js in one shared chunk.
 - `npm run preview` serves `dist/` on :4173.
 - `npm test` runs the unit tests, then the Playwright smoke tests. `tests/smoke.spec.js` builds, serves, flips every view of the explorer, does a twist, and fails on any console or page error; `tests/chess.spec.js` plays a move on the chess page, waits for the computer's reply and flips its views; `tests/cat.spec.js` walks, steps ana and tilts on the cat page with YouTube blocked, and flips its views. Screenshots go to `test-results/`. Run `npx playwright install chromium` once first. Where Playwright's bundled Chromium isn't available, set `PW_CHROMIUM_PATH` to another Chromium binary.
-- `npm run test:unit` runs only the unit tests in `tests/unit/` with Node's built-in runner (Node 21+ for the glob). They cover `math4d.js`, `shapes.js`, `viewer.js`, the chess rules and AI, and the cat page's slice math (including cuts of a 4D ball) and model.
+- `npm run test:unit` runs only the unit tests in `tests/unit/` with Node's built-in runner (Node 21+ for the glob). They cover `math4d.js`, `shapes.js`, `viewer.js`, the Rubik's cube model, the chess rules and AI, and the cat page's slice math (including cuts of a 4D ball) and model.
 - `npm run landmask` regenerates `src/assets/land-mask.png` from Natural Earth 1:110m (world-atlas). Output is deterministic.
 - Pushes to `main` run `.github/workflows/pages.yml`: unit tests, build, deploy to GitHub Pages. The smoke test doesn't run in CI.
 
@@ -22,7 +22,8 @@ Vanilla JS + three.js **r147**, bundled with Vite. There's no framework and no T
 - `src/shapes.js` has the polytope generators: `{ verts, edges }`, centered, unit-ish. `klein()` is the exception: a closed triangle mesh `{ verts, tris, grid }` of a Klein bottle embedded in R⁴ (a ring in x–z whose tube circle turns through y–w). `spunKlein()` is the 3D Klein bottle S²×̃S¹, immersed (it must self-intersect in R⁴): fibers `{ c, M }` over u ∈ [0, π], each the ellipsoid `c + M·p` for p on the unit sphere, i.e. the glass Klein bottle with each circle bulged into a sphere through w. `mobius4()` is the 4D Möbius strip (a solid Klein bottle, Möbius strip × interval), embedded: disks `{ c, M }` over u ∈ [0, 2π], each `c + M·(a, b)` with a² + b² ≤ 1, flipping over through w as u goes around.
 - `src/shaders/` holds the Earth ray-caster (`globe.*`) and the Earth cap surface for Shadow (`earth-cap.*`), imported with `?raw`. Both fragment shaders call `earthSurface` from `earth-surface.glsl`, which `main.js` prepends to them.
 - `src/scenery.js` and `src/hud.js` hold what the explorer and the cat page share. `scenery.js` has `tok` (read a CSS token), the 4D floor (`createFloor`), your marker, Shadow's depth shading (`depthShade`, `depthTint`) and the tube/knob instance matrices. `hud.js` has the position and frame readout, the ruler rows, where Stack cuts (`stackOffs`) and how its panels are labeled, `toScreen` (also used by chess) and the compass, a 2D canvas overlay of the world axes.
-- `src/main.js` is everything else, still one `main()` closure (see Refactor plan). Its sections, in order: viewer state → scene/floor → shaders/assets → per-object render objects → sectioning (`sectionPoints`, `sectionGeometry`) → stack/shadow builders → Rubik's cube model and builders → `rebuild()` → panel/ruler → input → Rubik's panel → frame loop.
+- `src/rubik/` is the 4D Rubik's cube. `cube.js` is the puzzle as pure data (pieces, twists, scramble, animations, Mirror and Double rotation, solved check), tested in Node like the chess rules. `puzzle.js` draws it in each view and wires its panel, Face this layer and Diagonal view included. `createPuzzle(o, ctx)` gets the page's sectioning helpers, view state and jump/camera hooks through `ctx` and returns `{ rebuild, step, explain, updatePanel }`.
+- `src/main.js` is everything else, still one `main()` closure (see Refactor plan). Its sections, in order: viewer state → scene/floor → shaders/assets → per-object render objects → sectioning (`sectionPoints`, `sectionGeometry`) → stack/shadow builders → the Rubik's cube (`createPuzzle`) → `rebuild()` → panel/ruler → input → views and camera → jumps → frame loop.
 
 ## Core model (read before editing)
 
@@ -42,14 +43,14 @@ Vanilla JS + three.js **r147**, bundled with Vite. There's no framework and no T
 
 **Earth** is `ball(R) × [−h, h]` in w, rendered per-pixel by ray-casting in `globe.frag.glsl`. Each fragment maps its ray to 4D (`Q + p.x·R + p.y·U − p.z·F`) and intersects the ball (a quadratic in xyz) with the slab (linear in w). The entry surface picks the shading: surface map or cut face with layer colors. It writes `gl_FragDepth`. Stack uses three proxies, each with its own `uQ` (slice offset) and `uShift` (sideways panel shift).
 
-**Rubik's cube 3⁴.**
-- `cubies[]`: 80 pieces, each `{ h, M }`. `h ∈ {−1,0,1}⁴ \ 0` is the home position. `M` is an integer 4×4 rotation, and the current position is `M·h`.
+**Rubik's cube 3⁴** (`src/rubik/cube.js`).
+- `cube.pieces`: 80 pieces, each `{ h, M }`. `h ∈ {−1,0,1}⁴ \ 0` is the home position. `M` is an integer 4×4 rotation, and the current position is `M·h`.
 - A layer is `round((M·h)[axis]) === val`. A twist rotates that layer 90° in a plane (i, j) that excludes `axis`. When the animation finishes it is baked into `M` and rounded, so floating-point error never accumulates.
 - Sticker color: map the face centroid back with `Mᵀu − h`; the dominant axis is the facet, and `h[i] === sign` means it's a sticker, otherwise plastic.
-- `RK.O` is a display-only whole-puzzle rotation, used by Mirror and Double rotation. When it becomes an integer matrix and nothing is animating, `tryBake()` folds it into every `M`. "Solved" is checked up to whole-puzzle rotation (`isSolved`).
+- `cube.O` is a display-only whole-puzzle rotation, used by Mirror and Double rotation. When it becomes an integer matrix and nothing is animating, `cube.step` folds it into every `M`. "Solved" is checked up to whole-puzzle rotation (`isSolved`). `cube.placed()` gives each piece's drawn rotation, with the twist under way.
 - Colors (`CELL_COLORS`) are indexed `axis*2 + (sign>0)`: −X, +X, −Y, +Y, −Z, +Z, −W, +W.
 
-**Animations.** `jump` tweens position, with an optional single-plane `turn` or a full `frame` (nlerp + Gram–Schmidt). `camTween` tweens the orbit camera. `RK.anim`, `RK.mirror` and `RK.spin` animate the cube. Every animated action respects `prefers-reduced-motion`.
+**Animations.** `jump` tweens position, with an optional single-plane `turn` or a full `frame` (slerp; a frame exactly 180° away has no single path, so `startJump` lands it at once). `camTween` tweens the orbit camera. `cube.anim`, `cube.mirror` and `cube.spin` animate the cube, advanced by `puzzle.step(dt)`. Every animated action respects `prefers-reduced-motion`.
 
 ## Conventions
 
@@ -61,7 +62,7 @@ Vanilla JS + three.js **r147**, bundled with Vite. There's no framework and no T
 ## Refactor plan (suggested next steps)
 
 1. Split `main.js` along its existing sections: `state.js` (S, VIEW, frame ops), `scene.js`, `sectioning.js`, `views/{slice,stack,shadow}.js`, `objects/{polytope,glome,earth,rubik}.js`, `ui/{panel,ruler,rubikPanel}.js`, `loop.js`. Pass a small context object rather than relying on closure scope.
-2. Give each object type one interface, `build(o, mode, ctx)`, and drop the type checks in `rebuild()`.
+2. Give each object type one interface, `build(o, mode, ctx)`, and drop the type checks in `rebuild()`. The Rubik's cube (`createPuzzle(o, ctx)`) is the first one moved out this way.
 3. TypeScript: `Vec4 = [number, number, number, number]`, `Mat4 = number[]` (length 16).
 4. Upgrading three past r147 needs care:
    - Import paths become `three/addons/...`.
