@@ -5,7 +5,8 @@
 // Each vertex carries what the fur shader (fur.js) paints from: `part` (fur, eye, nose or whisker), `region` (for
 // fur, how much of it is head, leg, tail and inner ear; the rest is body, and the weights blend across the joins),
 // `anchor` (an eye's or the nose's center; for fur, x is how far along the tail), `catPos` (its own position, kept
-// when a slice or Shadow moves `position`) and `shade` (Shadow's depth tint; none here). LAND gives the shader its
+// when a slice or Shadow moves `position`), `catW` (its own w: 0 here, set by the cuts and Shadow's layers, so the coat
+// can vary in w) and `shade` (Shadow's depth tint; none here). LAND gives the shader its
 // landmarks. `depth` is for the 4D rounding (main.js): how far in along its normal the vertex's part is thickest.
 // It faces +z with y up and its left side toward +x, centered front to back and on its middle height, so 4D turns
 // spin it in place; its feet are at y = −HEIGHT / 2. Two things are only on one side, so a mirror image is easy to
@@ -282,6 +283,7 @@ export function buildCat() {
 
   const g = mergeBufferGeometries(parts);
   g.setAttribute('catPos', g.getAttribute('position').clone());
+  g.setAttribute('catW', new THREE.Float32BufferAttribute(new Float32Array(g.getAttribute('position').count), 1));
   g.setAttribute('shade', new THREE.Float32BufferAttribute(new Array(g.getAttribute('position').count).fill([0, 0, 0, 1]).flat(), 4));
   g.computeBoundingSphere();
   return g;

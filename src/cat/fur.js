@@ -3,15 +3,19 @@
 // finely ticked, with thin dark stripes running down from a dark spine line, rings on the legs and tail, the lines of
 // a tabby's forehead running back over the crown, a dark line from each eye's outer corner, pale eye rims, a white
 // muzzle and chin, a pale bib and belly, white toes, pink inside the ears, pale yellow-green eyes under heavy lids.
-// Value noise breaks the stripes up and adds grain. Reads the attributes and landmarks (LAND) from model.js; `shade`
-// is Shadow's tint (color·a + rgb).
+// Value noise breaks the stripes up and adds grain. The coat is a 4D pattern: the noise is sampled at the point moved
+// along WDIR by its own w, and every family of stripes has a w term in its phase, so stepping ana or kata slides the
+// stripes and changes the grain. All of that is nothing at w = 0, where the coat is the 3D one; the markings (muzzle,
+// bib, toes, sock) stay put. Reads the attributes and landmarks (LAND) from model.js; `shade` is Shadow's tint
+// (color·a + rgb).
 import * as THREE from 'three';
 import { LAND } from './model.js';
 
 const v3 = a => `vec3(${a.map(x => x.toFixed(4)).join(', ')})`, f1 = x => x.toFixed(4);
 const FUR = /* glsl */ `
 uniform vec3 cDark, cBase, cLight, cCream, cWhite, cIris, cPupil, cNose, cEar;
-varying vec3 vCat, vAnchor; varying float vPart; varying vec4 vShade, vRegion;
+varying vec3 vCat, vAnchor; varying float vPart, vCatW; varying vec4 vShade, vRegion;
+const vec3 WDIR = vec3(0.62, -0.47, 0.63);   // which way w moves the noise, along no axis so no pattern just slides
 const vec3 HEAD = ${v3(LAND.head)}, HEAD_R = ${v3(LAND.headR)}, EYE = ${v3(LAND.eye.map(Math.abs))}, CHEST = ${v3(LAND.chest)};
 const float EYE_R = ${f1(LAND.eyeR)}, BODY_Y = ${f1(LAND.bodyY)}, BACK_Y = ${f1(LAND.backY)}, LEG_SPLIT = ${f1(LAND.legSplit)};
 const float FEET = ${f1(LAND.feet)}, TOE = ${f1(LAND.toe)}, SOCK = ${f1(LAND.sock)};
@@ -44,8 +48,9 @@ vec3 eyeColor(vec3 q, vec3 anc) {   // a pale iris, a big round pupil, a dark ri
   return mix(cPupil, col, front);
 }
 
-vec3 furColor(vec3 q, vec4 reg, float tailT) {
-  float n = fbm(q * 4.5), j = 2.0 * (n - 0.5), tick = 0.5 * (vnoise(SKEW * q * 70.0) + vnoise(SKEW2 * q * 70.0)), streak = vnoise(q * vec3(30.0, 260.0, 30.0));
+vec3 furColor(vec3 q, vec4 reg, float tailT, float w) {
+  vec3 qn = q + w * WDIR;   // where the noise is read: 4D, as the point moved by its own w
+  float n = fbm(qn * 4.5), j = 2.0 * (n - 0.5), tick = 0.5 * (vnoise(SKEW * qn * 70.0) + vnoise(SKEW2 * qn * 70.0)), streak = vnoise(qn * vec3(30.0, 260.0, 30.0));
   vec3 col = mix(cBase, cLight, smoothstep(0.35, 0.85, 0.75 * n + 0.3 * tick));
   float wHead = reg.x, wLeg = reg.y, wTail = reg.z, wEar = reg.w, wBody = max(0.0, 1.0 - wHead - wLeg - wTail - wEar);
   vec3 u = (q - HEAD) / HEAD_R;                // the head, as a unit ball
@@ -53,16 +58,16 @@ vec3 furColor(vec3 q, vec4 reg, float tailT) {
 
   // body: a dark spine line, thin mackerel stripes running down the flanks, faint necklaces, a pale bib and belly
   float spine = (1.0 - smoothstep(0.04, 0.1, ax + 0.03 * j)) * smoothstep(BACK_Y - 0.3, BACK_Y - 0.12, q.y);
-  float mack = band((q.z + 0.3 * (BACK_Y - q.y)) * 34.0 + 1.1 * sin(q.y * 9.0 + q.x * 6.0) + 2.4 * j, 0.24);
-  mack *= smoothstep(BODY_Y - 0.32, BODY_Y - 0.02, q.y) * (0.45 + 0.55 * smoothstep(0.3, 0.6, fbm(q * 9.0 + 3.0)));
+  float mack = band((q.z + 0.3 * (BACK_Y - q.y)) * 34.0 + 30.0 * w + 1.1 * sin(q.y * 9.0 + q.x * 6.0) + 2.4 * j, 0.24);
+  mack *= smoothstep(BODY_Y - 0.32, BODY_Y - 0.02, q.y) * (0.45 + 0.55 * smoothstep(0.3, 0.6, fbm(qn * 9.0 + 3.0)));
   float bibMask = 1.0 - smoothstep(0.5, 1.0, length((q - CHEST) / vec3(0.2, 0.4, 0.3)));
-  float necklace = 0.4 * band(length(q - HEAD) * 30.0 + j, 0.24) * within(length(q - HEAD), 0.42, 0.7, 0.05) * bibMask;
+  float necklace = 0.4 * band(length(q - HEAD) * 30.0 + 20.0 * w + j, 0.24) * within(length(q - HEAD), 0.42, 0.7, 0.05) * bibMask;
   float darkBody = max(max(spine, mack * (1.0 - 0.8 * bibMask)), necklace);
   float creamBody = 0.6 * bibMask * (1.0 - necklace) + 0.45 * smoothstep(BODY_Y - 0.2, BODY_Y - 0.42, q.y);
 
   // head: forehead lines running back over the crown, cheek stripes, a line from each eye, pale rims, a white muzzle
-  float fore = band(u.x * 22.0 + 0.5 * j, 0.22) * smoothstep(0.32, 0.55, u.y) * (1.0 - smoothstep(0.55, 0.75, aux));
-  float cheek = band((u.y - 0.35 * u.z) * 18.0 + 0.6 * j, 0.22) * smoothstep(0.6, 0.85, aux) * within(u.y, -0.6, 0.05, 0.1);
+  float fore = band(u.x * 22.0 + 16.0 * w + 0.5 * j, 0.22) * smoothstep(0.32, 0.55, u.y) * (1.0 - smoothstep(0.55, 0.75, aux));
+  float cheek = band((u.y - 0.35 * u.z) * 18.0 + 14.0 * w + 0.6 * j, 0.22) * smoothstep(0.6, 0.85, aux) * within(u.y, -0.6, 0.05, 0.1);
   vec3 e = vec3(abs(q.x), q.y, q.z) - EYE;
   float liner = (1.0 - smoothstep(0.008, 0.016, abs(e.y + 0.3 * max(e.x, 0.0) + 0.01))) * within(e.x, EYE_R * 0.8, EYE_R * 1.5, 0.015) * step(e.z, 0.02);
   float rim = 1.0 - smoothstep(1.05, 1.35, length(e / vec3(EYE_R, EYE_R, EYE_R * 1.4)));
@@ -78,9 +83,9 @@ vec3 furColor(vec3 q, vec4 reg, float tailT) {
   mouth *= smoothstep(0.6, 0.8, u.z);
 
   // legs: faint bars, white toes (higher on the left front's sock); tail: rings and a dark tip
-  float darkLeg = 0.65 * band(q.y * 30.0 + j, 0.3) * smoothstep(0.08, 0.16, ax - 0.1);
+  float darkLeg = 0.65 * band(q.y * 30.0 + 30.0 * w + j, 0.3) * smoothstep(0.08, 0.16, ax - 0.1);
   float white = 1.0 - smoothstep(-0.02, 0.02, q.y - FEET - mix(TOE, SOCK, step(0.0, q.x) * step(LEG_SPLIT, q.z)) + 0.03 * j);
-  float darkTail = max(band(tailT * 24.0 + j, 0.4), smoothstep(0.84, 0.95, tailT));
+  float darkTail = max(band(tailT * 24.0 + 40.0 * w + j, 0.4), smoothstep(0.84, 0.95, tailT));
 
   float dark = wBody * darkBody + wHead * darkHead + wLeg * darkLeg + wTail * darkTail;
   float cream = wBody * creamBody + wHead * creamHead;
@@ -92,11 +97,11 @@ vec3 furColor(vec3 q, vec4 reg, float tailT) {
   return col * (0.9 + 0.2 * tick);
 }
 
-vec3 catColor(vec3 q, float part, vec3 anc, vec4 reg) {
+vec3 catColor(vec3 q, float part, vec3 anc, vec4 reg, float w) {
   if (part > 2.5) return cWhite;                                             // whiskers
   if (part > 1.5) return mix(cNose * 0.62, cNose, smoothstep(-0.6, 0.2, (q.y - anc.y) / 0.034));   // nose, darker below
   if (part > 0.5) return eyeColor(q, anc);
-  return furColor(q, reg, anc.x);
+  return furColor(q, reg, anc.x, w);
 }
 `;
 
@@ -107,11 +112,11 @@ export function furMaterial(colors, params = {}) {
   m.onBeforeCompile = sh => {
     Object.assign(sh.uniforms, uniforms);
     sh.vertexShader = sh.vertexShader
-      .replace('#include <common>', '#include <common>\nattribute vec3 catPos, anchor; attribute float part; attribute vec4 shade, region;\nvarying vec3 vCat, vAnchor; varying float vPart; varying vec4 vShade, vRegion;')
-      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvCat = catPos; vAnchor = anchor; vPart = part; vShade = shade; vRegion = region;');
+      .replace('#include <common>', '#include <common>\nattribute vec3 catPos, anchor; attribute float part, catW; attribute vec4 shade, region;\nvarying vec3 vCat, vAnchor; varying float vPart, vCatW; varying vec4 vShade, vRegion;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvCat = catPos; vAnchor = anchor; vPart = part; vCatW = catW; vShade = shade; vRegion = region;');
     sh.fragmentShader = sh.fragmentShader
       .replace('#include <common>', '#include <common>\n' + FUR)
-      .replace('vec4 diffuseColor = vec4( diffuse, opacity );', 'vec4 diffuseColor = vec4( catColor( vCat, vPart, vAnchor, vRegion ) * vShade.a + vShade.rgb, opacity );');
+      .replace('vec4 diffuseColor = vec4( diffuse, opacity );', 'vec4 diffuseColor = vec4( catColor( vCat, vPart, vAnchor, vRegion, vCatW ) * vShade.a + vShade.rgb, opacity );');
   };
   m.customProgramCacheKey = () => 'cat-fur';
   return m;

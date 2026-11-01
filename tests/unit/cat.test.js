@@ -120,6 +120,22 @@ test('a level cut is the skin, pushed in: one triangle per skin triangle', () =>
   assert.ok(m.verts <= N);   // the sphere's poles have spare vertices
 });
 
+test('each vertex of a cut knows its own w: level, the cut at off is all at w = off', () => {
+  for (const off of [0.001, 0.3, -0.45]) {
+    const c = cutter.cut(ident(), off, buf);
+    for (let j = 0; j < c.nv; j++) near(c.w[j], off, 1e-5);
+  }
+  // tilted, a point's own w and how far ana it is agree with where it sits: (G·(p, w))_ana = off
+  const c = cutter.cut(TILT, 0.2, buf);
+  let worst = 0;
+  for (let j = 0; j < c.nv; j++) {
+    // its own coordinates from the scene ones, through G's transpose (G is a rotation): own w = column 3 · (x, y, z, ana)
+    const ownW = TILT[3] * c.pos[3 * j] + TILT[7] * c.pos[3 * j + 1] + TILT[11] * c.pos[3 * j + 2] + TILT[15] * 0.2;
+    worst = Math.max(worst, Math.abs(ownW - c.w[j]));
+  }
+  assert.ok(worst < 0.02, `own w off by ${worst}`);
+});
+
 test('beyond its reach a cut is empty, and the reach is ±R along any ana', () => {
   assert.equal(measure(TILT, 0.61).tris, 0);
   for (const G of [ident(), TILT]) { const [lo, hi] = roundRange(G, ball); near(lo, -R, 1e-6); near(hi, R, 1e-6); }

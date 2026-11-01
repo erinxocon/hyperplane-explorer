@@ -96,8 +96,8 @@ const wrap = t => t - 2 * Math.PI * Math.round(t / (2 * Math.PI));
 // skin point, normal, depth and θ taken in proportion, the proportion found by regula falsi on a.
 // roundCutter(src, carry) prepares one: carry lists per-skin-point attributes ({ array, size }) to carry onto the cut's
 // vertices. output() makes a buffer for one cut; cut(G, off, out) fills it and returns it: pos and nrm (xyz per vertex,
-// nrm the cut surface's normal: the 4D normal's part along your slice), each carried attribute, and index (wound to
-// face out), nv vertices and ni indices. Its arrays are replaced by bigger ones when they fill up, and out.grown says so.
+// nrm the cut surface's normal: the 4D normal's part along your slice), w (each vertex's own w, r sin θ, for the
+// fur's 4D pattern), each carried attribute, and index (wound to face out), nv vertices and ni indices. Its arrays are replaced by bigger ones when they fill up, and out.grown says so.
 export function roundCutter(src, carry, K = 8) {
   const { s, n, r: rad, tris } = src, N = rad.length, L = 2 * K + 1;
   const TH = Float64Array.from({ length: L }, (_, k) => (k - K) * Math.PI / 2 / K), COS = TH.map(Math.cos), SIN = TH.map(Math.sin);
@@ -122,14 +122,14 @@ export function roundCutter(src, carry, K = 8) {
   let stamp = 0, out = null, t3 = 0, k = 0, gw = 0;
 
   function output() {
-    const o = { nv: 0, ni: 0, cap: 0, icap: 0, grown: true, pos: null, nrm: null, carried: carry.map(() => null), index: null };
+    const o = { nv: 0, ni: 0, cap: 0, icap: 0, grown: true, pos: null, nrm: null, w: null, carried: carry.map(() => null), index: null };
     grow(o, 2 * N, 4 * tris.length);
     return o;
   }
   function grow(o, cap, icap) {
     const more = (a, m) => { const b = new Float32Array(m); if (a) b.set(a); return b; };
     if (cap > o.cap) {
-      o.pos = more(o.pos, 3 * cap); o.nrm = more(o.nrm, 3 * cap);
+      o.pos = more(o.pos, 3 * cap); o.nrm = more(o.nrm, 3 * cap); o.w = more(o.w, cap);
       o.carried = carry.map((c, j) => more(o.carried[j], c.size * cap));
       o.cap = cap;
     }
@@ -153,6 +153,7 @@ export function roundCutter(src, carry, K = 8) {
       P[3 * v + q] = GS[3 * i + q] + r * ((c - 1) * GN[3 * i + q] + sn * GW[q]);
       Q[3 * v + q] = c * GN[3 * i + q] + sn * GW[q];
     }
+    out.w[v] = r * sn;
     unit(v);
     lerpCarry(v, i, i, 0, true);
     return v;
@@ -179,6 +180,7 @@ export function roundCutter(src, carry, K = 8) {
       P[3 * v + q] = gs + r * ((c - 1) * gn + sn * GW[q]);
       Q[3 * v + q] = c * gn + sn * GW[q];
     }
+    out.w[v] = r * sn;
     unit(v);
     lerpCarry(v, i, j, t, true);
     return v;
@@ -190,6 +192,7 @@ export function roundCutter(src, carry, K = 8) {
       P[3 * v + q] = P[3 * a + q] + (P[3 * b + q] - P[3 * a + q]) * t;
       Q[3 * v + q] = Q[3 * a + q] + (Q[3 * b + q] - Q[3 * a + q]) * t;
     }
+    out.w[v] = out.w[a] + (out.w[b] - out.w[a]) * t;
     unit(v);
     lerpCarry(v, a, b, t, false);
     return v;

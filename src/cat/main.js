@@ -54,7 +54,7 @@ const SPIN_DESC = {
   flip: '<b>Somersault</b> turns it in the y–w plane, so its height tips into w. A quarter turn on, your slice cuts it level through its middle, filled out up and down by its roundness in w. Half a turn on it is upside down and mirrored, a pose no 3D turn can reach.',
 };
 const VIEW_DESC = {
-  slice: '<b>Slice</b> is what a 3D being in your hyperplane sees. The cat is as round in w as it is in 3D: about 1.1 through its body, 0.7 through its head and 0.25 through a leg. The TV is a box 1.4 thick. Level with their middles you see both whole. Step ana or kata and the cat thins, its whiskers, ears, tail and legs going first, while the TV stays whole until you leave it. Tilt your slice into ana, or turn the cat through w, and you see the cat stretched and the TV as a band, with flat faces where your slice cuts through it. The picture on the TV is cut the same way: swing sideways into ana (U, O) and it narrows to a band; step ana or kata to slide the band across.',
+  slice: '<b>Slice</b> is what a 3D being in your hyperplane sees. The cat is as round in w as it is in 3D: about 1.1 through its body, 0.7 through its head and 0.25 through a leg. The TV is a box 1.4 thick. Level with their middles you see both whole. Step ana or kata and the cat thins, its whiskers, ears, tail and legs going first, while the TV stays whole until you leave it. Its coat is patterned in 4D, so its stripes slide as you go. Tilt your slice into ana, or turn the cat through w, and you see the cat stretched and the TV as a band, with flat faces where your slice cuts through it. The picture on the TV is cut the same way: swing sideways into ana (U, O) and it narrows to a band; step ana or kata to slide the band across.',
   stack: '<b>Stack</b> cuts the cat and the TV with three parallel hyperplanes each, a quarter of their extent along ana apart, kata on the left, laid side by side. The sideways gaps are only for display. The picture shows on the middle TV.',
   shadow: '<b>Shadow</b> is a 4D perspective projection from an eye ana of each object. The cat shows three of its layers in w: its middle, and see-through thinner ones kata and ana of it. The TV’s 4D box shows as a box in a box joined at the corners, and its screen, a rectangle times the thickness, as a frustum; the picture sits on its middle layer. Parts further kata are smaller, dimmer and bluer, parts nearer the eye bigger, brighter and warmer.',
 };
@@ -142,6 +142,7 @@ function main() {
     const o = c.out, g = new THREE.BufferGeometry(), dyn = (a, size) => new THREE.BufferAttribute(a, size).setUsage(THREE.DynamicDrawUsage);
     g.setAttribute('position', dyn(o.pos, 3));
     g.setAttribute('normal', dyn(o.nrm, 3));
+    g.setAttribute('catW', dyn(o.w, 1));
     CARRY.forEach((k, j) => g.setAttribute(k, dyn(o.carried[j], CA(k).itemSize)));
     g.setAttribute('shade', new THREE.BufferAttribute(new Float32Array(4 * o.cap).map((_, i) => +(i % 4 === 3)), 4));   // no tint
     g.setIndex(dyn(o.index, 1));
@@ -192,10 +193,12 @@ function main() {
       for (let t = 0; t < ix.length; t += 3) if (reaches(ix[t]) && reaches(ix[t + 1]) && reaches(ix[t + 2])) keep.push(ix[t], ix[t + 1], ix[t + 2]);
       g.setIndex(keep);
     }
+    const p4 = roundLayer(round, w);
+    g.setAttribute('catW', new THREE.Float32BufferAttribute(p4.filter((_, i) => i % 4 === 3), 1));   // for the coat's 4D pattern
     const mesh = new THREE.Mesh(g, furMaterial(fur, w ? { side: THREE.DoubleSide, transparent: true, opacity: 0.3, depthWrite: false } : { side: THREE.DoubleSide }));
     mesh.frustumCulled = false;
     scene.add(mesh);
-    return { mesh, p4: roundLayer(round, w), pos: g.getAttribute('position'), shade: g.getAttribute('shade') };
+    return { mesh, p4, pos: g.getAttribute('position'), shade: g.getAttribute('shade') };
   });
   function drawCatShadow({ mesh, p4, pos, shade }, G, at) {
     const P = pos.array, Sh = shade.array;
