@@ -22,29 +22,15 @@ import { buildCat, HEIGHT } from './model.js';
 import { furMaterial } from './fur.js';
 import { inView, thickSlice, screenSlice, screenShadow, roundCutter, roundRange, roundLayer } from './slice4d.js';
 import { buildTV, TV } from './tv.js';
+import { SPINS, FACE } from './spins.js';
 import './cat.css';
 
-const FLOOR_Y = -2.4, EYE_CAT = 4, EYE_TV = 4.5, ANT = 0.3, DRIFT = 1.1;   // DRIFT: how far Pass through takes the cat along w
-// Both face where you start: their own +z points along world −z.
-const FACE = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, -1, 0, 0, 0, 0, 1];
+const FLOOR_Y = -2.4, EYE_CAT = 4, EYE_TV = 4.5, ANT = 0.3;
+// Both face where you start (FACE, in spins.js): their own +z points along world −z.
 const CAT_AT = [0, FLOOR_Y + HEIGHT / 2 + 0.02, 5, 0], TV_AT = [0, 0.9, 9.5, 0];
 const DEFAULT_VIDEO = '2TBTJL46rg8';   // "OIIA OIIA (Spinning Cat)" by W&W, from the W&W - Topic channel
 const VIDEO = (new URLSearchParams(location.search).get('v') || '').match(/^[\w-]{11}$/)?.[0] || DEFAULT_VIDEO;
-// Each spin is a 4D rotation by angle t in the cat's own coordinates; rot(i, j, t) turns axis i toward axis j. Pass
-// through also moves it along w (drift). Every spin is back where it started after three turns, the loop's period.
-// label(degrees, total degrees, drift) is the readout over the view.
-const SPINS = {
-  y: { R: t => rot(0, 2, t), label: t => `x–z turn ${t}°` },
-  w: { R: t => rot(0, 3, t), label: t => `x–w turn ${t}°` },
-  both: { R: t => mm(rot(0, 3, t / 3), rot(0, 2, t)), label: (t, r) => `x–z turn ${t}° · x–w turn ${Math.round(r / 3) % 360}°` },
-  pass: { R: t => rot(0, 2, t), drift: t => DRIFT * Math.sin(t / 3), label: (t, r, d) => `x–z turn ${t}° · w ${fmt(d)}` },
-  double: { R: t => mm(rot(0, 2, t), rot(1, 3, t)), label: t => `x–z and y–w turns ${t}°` },
-  opposite: { R: t => mm(rot(0, 2, t), rot(1, 3, -t)), label: t => `x–z turn ${t}° · y–w turn ${(360 - t) % 360}°` },
-  knot: { R: t => mm(rot(0, 2, t), rot(1, 3, 2 * t / 3)), label: (t, r) => `x–z turn ${t}° · y–w turn ${Math.round(2 * r / 3) % 360}°` },
-  flip: { R: t => rot(1, 3, t), label: t => `y–w turn ${t}°` },
-  tumble: { R: t => mm(mm(rot(0, 2, t), rot(1, 3, 2 * t / 3)), rot(0, 1, t / 3)), label: (t, r) => `x–z turn ${t}° · y–w turn ${Math.round(2 * r / 3) % 360}° · x–y turn ${Math.round(r / 3) % 360}°` },
-  wobble: { R: t => mm(mm(rot(0, 2, t), rot(2, 3, t / 3)), rot(3, 0, t / 3)), label: (t, r) => `x–z turn ${t}° · z–w and w–x turns ${Math.round(r / 3) % 360}°` },
-};
+// The spins (SPINS) are in spins.js.
 const SPIN_DESC = {
   y: '<b>3D</b> spins it around y, in the x–z plane: the meme spin. Nothing leaves your slice, so standing level with it you see the whole cat.',
   w: '<b>Through w</b> turns it in the x–w plane. Its side swings out of your slice, so you see a band of it around its middle, stretched sideways. A quarter turn on, your slice cuts it lengthwise down the middle: its side view, filled out by its roundness in w. Half a turn on, it comes back mirrored: its tail curls the other way and the white sock is on its other front paw.',
