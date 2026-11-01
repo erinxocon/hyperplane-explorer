@@ -13,42 +13,48 @@ import { createFloor, createMarker } from './scenery.js';
 import { createReadout, createCompass, stackLabels, placeStackTags } from './hud.js';
 import { local } from './shapes/draw.js';
 import { createStage } from './stage.js';
-import { VIEW_OVERLAY, NAV_HTML, FRAME_HTML } from './nav.js';
+import { viewOverlay, NAV_HTML, FRAME_HTML } from './nav.js';
 
 const VOL_DESC = ' <b>Volume view is on:</b> your slice lies level, so here ana means down and kata means up.';
-const CAM0 = [0, 3.4, 6.2];
-
-// Put the shared markup in the page (at #view, #nav and #nav-frame), then make the stage and the floor. `viewDesc` is
-// the page's text for each view, shown under the View buttons. Returns null, with a note in the view, without WebGL.
-export function createWalker({ viewDesc = {}, floorY = -2.4, what = 'the 3D slice' } = {}) {
-  $('view').insertAdjacentHTML('beforeend', VIEW_OVERLAY);
+// Put the shared markup in the page (at #view, #nav and #nav-frame), then make the stage and the floor. Options: viewDesc
+// (the page's text for each view, shown under the View buttons), hint (added to the line at the bottom of the view),
+// floorY, floor (its extent [half-width, far, near z]), position and target (the camera at the start), fog [near, far],
+// lights (intensities of the hemisphere light, the sun and the fill; no fill light if 0). Returns null, with a note in
+// the view, without WebGL.
+export function createWalker({ viewDesc = {}, hint = '', floorY = -2.4, floor: floorSize = [9, 30, -4], what = 'the 3D slice',
+  position = [0, 3.4, 6.2], target = [0, -0.2, -4.5], fog = [16, 42], lights = {} } = {}) {
+  const { hemi = 0.75, sun: sunLight = 0.85, fill: fillLight = 0.25 } = lights;
+  $('view').insertAdjacentHTML('beforeend', viewOverlay(hint));
   $('nav').outerHTML = NAV_HTML;
   $('nav-frame').outerHTML = FRAME_HTML;
 
   let hooks = {};
   const stage = createStage({
-    what, viewDesc, mode: 'slice', position: CAM0, target: [0, -0.2, -4.5],
+    what, viewDesc, fog, mode: 'slice', position, target,
     onMode(m, prev) {
       if (m !== prev && (m === 'stack' || prev === 'stack')) { stage.orbited = true; stage.cam.dolly(m === 'stack' ? 1.5 : 1 / 1.5); }
       redraw();
       hooks.mode?.(m);
     },
     onResize() {
-      if (stage.orbited) return;
-      const k = Math.max(1, 1.3 / stage.camera.aspect);   // pull back on narrow screens so the whole scene fits
-      stage.camera.position.copy(stage.controls.target).add(new THREE.Vector3(...CAM0).sub(stage.controls.target).multiplyScalar(k));
-      stage.controls.update();
+      if (!stage.orbited) pullBack();
+      hooks.resize?.();
     },
   });
+  function pullBack() {   // on narrow screens, pull the camera back so the whole scene fits
+    const k = Math.max(1, 1.3 / stage.camera.aspect);
+    stage.camera.position.copy(stage.controls.target).add(new THREE.Vector3(...position).sub(stage.controls.target).multiplyScalar(k));
+    stage.controls.update();
+  }
   if (!stage) return null;
   const { scene, BG, camera, controls, cam, view } = stage;
 
-  scene.add(new THREE.HemisphereLight(0xdfe7ff, 0x1a2230, 0.75));
-  const sun = new THREE.DirectionalLight(0xffffff, 0.85); sun.position.set(4, 9, 6); scene.add(sun);
-  const fill = new THREE.DirectionalLight(0xb8a6ff, 0.25); fill.position.set(-6, 2, -4); scene.add(fill);
+  scene.add(new THREE.HemisphereLight(0xdfe7ff, 0x1a2230, hemi));
+  const sun = new THREE.DirectionalLight(0xffffff, sunLight); sun.position.set(4, 9, 6); scene.add(sun);
+  if (fillLight) { const fill = new THREE.DirectionalLight(0xb8a6ff, fillLight); fill.position.set(-6, 2, -4); scene.add(fill); }
 
   // the floor, the 4D hyperplane y = floorY cut by your slice, and you at the origin of the slice
-  const floor = createFloor(BG, [9, 30, -4]);
+  const floor = createFloor(BG, floorSize);
   scene.add(floor.mesh, createMarker());
 
   /* ---------- state ---------- */
@@ -130,7 +136,8 @@ export function createWalker({ viewDesc = {}, floorY = -2.4, what = 'the 3D slic
   // Start the page: `list` is its world (entries with build(V, ctx), range, stackInfo, optional tick(camera, dt,
   // reduceMotion)). hooks, all optional: mode(m) after the view changes, volume(on) after volume view does, spinM() the
   // 4D spin matrix or null, tick(dt) each frame before drawing (call redraw() if it changed the world), update(V) after
-  // every redraw of the world.
+  // every redraw of the world, resize() after the canvas is resized, after(dt) each frame once the camera has settled, just
+  // before drawing.
   function run(list, h = {}) {
     world = list; hooks = h;
     // the movement keys and on-screen keys (viewer.js), acting on S; the view keys are the stage's, V is here
@@ -166,9 +173,10 @@ export function createWalker({ viewDesc = {}, floorY = -2.4, what = 'the 3D slic
         placeStackTags(stackTags, view, camera, tagged?.at, tagged?.o.stackInfo);
         for (const o of world) o.tick?.(camera, dt, reduceMotion);
         drawCompass(V, camera);
+        hooks.after?.(dt);
       },
     });
   }
 
-  return { scene, BG, S, VOL, run, frame, redraw, startJump, setVolume, frameOn, mode: stage.mode, volOn: () => VOL.on };
+  return { scene, BG, renderer: stage.renderer, camera, controls, view, S, VOL, run, frame, redraw, startJump, setVolume, frameOn, mode: stage.mode, volOn: () => VOL.on };
 }
