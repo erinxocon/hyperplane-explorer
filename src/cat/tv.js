@@ -3,7 +3,7 @@
 // cat), the 4D edges its shadow is drawn with, where the antenna tesseract sits, and where the screen is. The picture
 // is the YouTube player itself, which main.js lays on the screen with CSS3DRenderer.
 import * as THREE from 'three';
-import { mergeBufferGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { tesseract } from '../shapes/shapes.js';
 
 // The cabinet's half-sizes along its own x, y, z and w; the screen, 16:9, is screenW wide and `px` pixels across.
@@ -39,7 +39,7 @@ export function buildTV(floorY) {
     pieces: {
       panel: new THREE.BoxGeometry(2 * hx, 2 * hy, 2 * hz),
       glass: new THREE.PlaneGeometry(sw + 0.1, sh + 0.1).translate(0, sy, hz + 0.003),
-      chrome: mergeBufferGeometries(chrome),
+      chrome: mergeGeometries(chrome),
     },
     wire: { verts, edges, knobs: 16 },   // knobs on the first 16 vertices, the 4D box's corners
     antenna: [0, hy + 0.95, -0.1, 0],

@@ -2,7 +2,7 @@
 
 An interactive 4D explorer, plus three more pages: the 4D Rubik's cube (`rubik.html`), 4D chess (`chess.html`) and a 4D spinning cat (`cat.html`); see the end of this file. The viewer is a 3D being in a hyperplane of R⁴. The explorer's scene contains convex 4-polytopes, a glome, a w-thickened Earth, a Klein bottle, a 3D Klein bottle and a 4D Möbius strip; the cube page has a 3×3×3×3 Rubik's cube. Each can be shown three ways: **Slice** (intersection with your hyperplane), **Stack** (three parallel slices side by side), and **Shadow** (4D→3D perspective projection).
 
-Vanilla JS + three.js **r147**, bundled with Vite. There's no framework and no TypeScript yet.
+Vanilla JS + three.js **r187**, bundled with Vite. `?renderer=webgpu` tries `WebGPURenderer` and `?renderer=webgpu-gl` forces its WebGL2 backend; both are experiments, since the floor, Earth (`ShaderMaterial`) and the cat's fur (`onBeforeCompile`) aren't ported to TSL. There's no framework and no TypeScript yet.
 
 ## Commands
 
@@ -67,11 +67,7 @@ Vanilla JS + three.js **r147**, bundled with Vite. There's no framework and no T
 
 1. Done so far: the shapes (`shapes/`), the Rubik's cube (`rubik/`, now its own page), the stage and walker (`stage.js`, `walk.js`) and the shared page plumbing (`utils.js`) are out of the old `main.js`, and every shape has one interface, `o.build(V, ctx)`. the cat page is on the walker too. Next: move the explorer's shapes panel to its own module.
 2. TypeScript: `Vec4 = [number, number, number, number]`, `Mat4 = number[]` (length 16).
-3. Upgrading three past r147 needs care:
-   - Import paths become `three/addons/...`.
-   - r152 turned on color management with sRGB output, so colors shift. Set `renderer.outputColorSpace` and revisit material colors.
-   - r155 removed legacy lights, so light intensities need roughly ×π.
-   - Check `InstancedMesh.setColorAt` and `ConvexGeometry` behavior.
+3. Port the floor, Earth and the fur to TSL, so WebGPU can be the default renderer. WebGPURenderer rejects `ShaderMaterial` and ignores `onBeforeCompile`. A custom `ShaderMaterial` on WebGL has to end with `#include <colorspace_fragment>` to match color-managed colors, unless its colors are authored for display as they are, as Earth's are.
 4. Possible features: unlock U for full SO(4) slicing, 4D hidden-cell removal in Shadow, a move log/undo for the cube, a stereographic projection mode for the glome.
 
 ## 4D chess (`chess.html`, `src/chess/`)

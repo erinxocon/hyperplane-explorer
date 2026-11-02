@@ -25,6 +25,7 @@ export function createFloor(bg, fade) {
         col = mix(col, cW, smoothstep(0.07, 0.0, wl) * smoothstep(0.02, 0.12, grad) * 0.9);
         float fade = 1.0 - smoothstep(uFade.x, uFade.y, length(vPos.xz - vec2(0.0, uFade.z)));
         gl_FragColor = vec4(mix(cBg, col, fade), 1.0);
+        #include <colorspace_fragment>
       }`,
   });
   const mesh = new THREE.Mesh(new THREE.PlaneGeometry(90, 90), mat);

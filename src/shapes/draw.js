@@ -121,7 +121,7 @@ export function drawTubes(o, segs) {
   if (!n) return;   // nothing drawn; an update range of 0 would make WebGL2 upload the whole buffer
   for (const im of [o.tubes, o.knobs]) for (const [attr, size] of [[im.instanceMatrix, 16], [im.instanceColor, 3]]) {
     if (!attr) continue;
-    attr.updateRange.offset = 0; attr.updateRange.count = n * size;
+    attr.clearUpdateRanges(); attr.addUpdateRange(0, n * size);
     attr.needsUpdate = true;
   }
 }

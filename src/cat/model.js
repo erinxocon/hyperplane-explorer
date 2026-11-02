@@ -15,7 +15,7 @@
 // part, `depth` in, so a ball becomes a 4D ball and a round leg a round 4D tube (slice4d.js does the cutting). Its body
 // reaches about ±0.57 along w, its head ±0.33, its legs ±0.12, its ears ±0.04 and its whiskers hardly at all.
 import * as THREE from 'three';
-import { mergeBufferGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
 export const HEIGHT = 2;
 export const PART = { FUR: 0, EYE: 1, NOSE: 2, WHISKER: 3 };
@@ -281,7 +281,7 @@ export function buildCat() {
     add(g.translate(...a.clone().add(b).multiplyScalar(0.5).toArray()), PART.WHISKER, 0.003);
   }));
 
-  const g = mergeBufferGeometries(parts);
+  const g = mergeGeometries(parts);
   g.setAttribute('catPos', g.getAttribute('position').clone());
   g.setAttribute('catW', new THREE.Float32BufferAttribute(new Float32Array(g.getAttribute('position').count), 1));
   g.setAttribute('shade', new THREE.Float32BufferAttribute(new Array(g.getAttribute('position').count).fill([0, 0, 0, 1]).flat(), 4));

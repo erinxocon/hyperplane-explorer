@@ -8,7 +8,7 @@
 import * as THREE from 'three';
 import { add, mul, dot, lerp, ease, slerp } from './math4d.js';
 import { createViewer, bindControls } from './viewer.js';
-import { $, reduceMotion } from './utils.js';
+import { $, reduceMotion, LIGHT } from './utils.js';
 import { createFloor, createMarker } from './scenery.js';
 import { createReadout, createCompass, stackLabels, placeStackTags } from './hud.js';
 import { local } from './shapes/draw.js';
@@ -49,9 +49,9 @@ export function createWalker({ viewDesc = {}, hint = '', floorY = -2.4, floor: f
   if (!stage) return null;
   const { scene, BG, camera, controls, cam, view } = stage;
 
-  scene.add(new THREE.HemisphereLight(0xdfe7ff, 0x1a2230, hemi));
-  const sun = new THREE.DirectionalLight(0xffffff, sunLight); sun.position.set(4, 9, 6); scene.add(sun);
-  if (fillLight) { const fill = new THREE.DirectionalLight(0xb8a6ff, fillLight); fill.position.set(-6, 2, -4); scene.add(fill); }
+  scene.add(new THREE.HemisphereLight(0xdfe7ff, 0x1a2230, hemi * LIGHT));
+  const sun = new THREE.DirectionalLight(0xffffff, sunLight * LIGHT); sun.position.set(4, 9, 6); scene.add(sun);
+  if (fillLight) { const fill = new THREE.DirectionalLight(0xb8a6ff, fillLight * LIGHT); fill.position.set(-6, 2, -4); scene.add(fill); }
 
   // the floor, the 4D hyperplane y = floorY cut by your slice, and you at the origin of the slice
   const floor = createFloor(BG, floorSize);

@@ -6,7 +6,7 @@ import { PIECE_GEOMETRY, STAND, buildStand, buildFrame } from './models.js';
 import { toScreen } from '../hud.js';
 import { tok } from '../scenery.js';
 import { roomEnvironment } from '../environment.js';
-import { $, reduceMotion, press, onButton } from '../utils.js';
+import { $, reduceMotion, press, onButton, LIGHT } from '../utils.js';
 import { createStage } from '../stage.js';
 import './chess.css';
 
@@ -55,8 +55,8 @@ function main() {
   if (!stage) return;
   const { renderer, scene, BG, camera, controls, cam } = stage;
   roomEnvironment(renderer, scene);   // reflections for the chrome
-  scene.add(new THREE.HemisphereLight(0xdfe7ff, 0x1a2230, 0.3));
-  const sun = new THREE.DirectionalLight(0xffffff, 0.55);
+  scene.add(new THREE.HemisphereLight(0xdfe7ff, 0x1a2230, 0.3 * LIGHT));
+  const sun = new THREE.DirectionalLight(0xffffff, 0.55 * LIGHT);
   sun.position.set(5, 14, 9);
   scene.add(sun);
 

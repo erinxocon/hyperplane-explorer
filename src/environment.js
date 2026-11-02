@@ -2,9 +2,15 @@
 // chrome, doesn't download three.js's RoomEnvironment.
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
+import { GPU } from './utils.js';
 
 export function roomEnvironment(renderer, scene) {
-  const pmrem = new THREE.PMREMGenerator(renderer);
-  scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
-  pmrem.dispose();
+  const make = Generator => {
+    const pmrem = new Generator(renderer);
+    scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+    pmrem.dispose();
+  };
+  // WebGPU's device comes up asynchronously, so its reflections arrive a moment later
+  if (renderer.isWebGPURenderer) renderer.init().then(() => make(GPU.PMREMGenerator));
+  else make(THREE.PMREMGenerator);
 }

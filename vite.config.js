@@ -9,10 +9,10 @@ const page = name => fileURLToPath(new URL(name, import.meta.url));
 export default defineConfig({
   base: './',
   build: {
-    target: 'es2020', chunkSizeWarningLimit: 900,
+    target: 'es2022', chunkSizeWarningLimit: 900,   // es2022: top-level await, to load three/webgpu on demand
     rollupOptions: {
       input: { main: page('./index.html'), rubik: page('./rubik.html'), chess: page('./chess.html'), cat: page('./cat.html') },
-      output: { manualChunks: id => (id.includes('/node_modules/three/') ? 'three' : undefined) },   // all the pages share one three.js chunk
+      output: { manualChunks: id => (id.includes('three.webgpu') || id.includes('three.tsl') ? 'three-webgpu' : id.includes('/node_modules/three/') ? 'three' : undefined) },   // all the pages share one three.js chunk
     },
   },
   worker: { format: 'es' },
