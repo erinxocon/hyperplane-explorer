@@ -24,6 +24,10 @@
       <h2>Music</h2>
       <button class="key play" type="button" id="play" aria-pressed="false">▶ Play OIIA OIIA<kbd>space</kbd></button>
       <p class="note" id="music-note">“OIIA OIIA (Spinning Cat)” by W&amp;W, playing from YouTube on the 4D TV. The cat spins while it plays.</p>
+      <div id="beat-row">
+        <label class="speed" for="beat0">Beat offset <input type="range" id="beat0" min="0" max="0.4" step="0.01" value="0"> <output id="beat0-out">0.00 s</output></label>
+        <p class="note">The spin follows the song’s clock. Slide this until its turns land on the beat.</p>
+      </div>
     </section>
 
     <section>
@@ -33,7 +37,7 @@
         <button type="button" id="spin-double" data-v="double">Double</button><button type="button" id="spin-opposite" data-v="opposite">Opposite</button><button type="button" id="spin-knot" data-v="knot">2 : 3</button><button type="button" id="spin-flip" data-v="flip">Somersault</button><button type="button" id="spin-tumble" data-v="tumble">Tumble</button><button type="button" id="spin-wobble" data-v="wobble">Wobble</button>
       </div>
       <p class="note" id="spin-desc"></p>
-      <label class="speed" for="speed">Speed <input type="range" id="speed" min="0.25" max="3" step="0.05" value="1"></label>
+      <label class="speed" for="speed">Speed <input type="range" id="speed" min="0.25" max="3" step="0.05" value="2.5"></label>
       <div class="spin-tools">
         <button class="ghost" type="button" id="best">Best view for this spin</button>
         <label class="switch" for="trails"><input type="checkbox" id="trails"><span></span>Trails, in Shadow</label>

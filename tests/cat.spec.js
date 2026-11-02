@@ -5,6 +5,66 @@ import { watchErrors } from './errors.js';
 // the TV in the ruler, swings the slice so the screen is cut to a band, tries every view and volume view, resets, tries
 // every spin, and fails on any page error. Reduced motion makes jumps and volume view instant, so the steps don't wait
 // on frame rate; window.cat4d.pose stops the cat at a set pose for the screenshots that need one.
+// A stand-in for YouTube's player whose clock, like the real one, only changes four times a second. The test reads how
+// far the spin is from where that clock's true time says it should be, wherever the frame rate is.
+const FAKE_YT = `
+  window.YT = { PlayerState: { ENDED: 0, PLAYING: 1, PAUSED: 2 }, Player: class {
+    constructor(el, o) { this.o = o; this.state = -1; this.at = 0; window.fakePlayer = this; }
+    true() { return this.state === 1 ? this.at + (performance.now() - this.from) / 1000 : this.at; }
+    set(state) { this.at = this.true(); this.from = performance.now(); this.state = state; this.o.events.onStateChange({ data: state }); }
+    playVideo() { this.set(1); }
+    pauseVideo() { this.set(2); }
+    seekTo(t) { this.at = t; this.from = performance.now(); }
+    getPlayerState() { return this.state; }
+    getCurrentTime() { return Math.floor(this.true() * 4) / 4; }
+  } };
+  window.onYouTubeIframeAPIReady();`;
+
+test('4D spinning cat: the spin keeps to the song', async ({ page }) => {
+  test.setTimeout(120_000);
+  const errors = watchErrors(page, /fonts\.(googleapis|gstatic)\.com|youtube|ytimg|googlevideo/);
+  await page.route(/youtube|ytimg|googlevideo/, r => r.request().url().includes('iframe_api')
+    ? r.fulfill({ contentType: 'text/javascript', body: FAKE_YT }) : r.abort());
+  await page.goto('/cat.html');
+  await expect(page.locator('#speed')).toHaveValue('2.5');
+  await page.waitForFunction(() => window.fakePlayer);
+
+  // the spin's distance from the song's true time at the last frame, in degrees of a turn, the short way round
+  const off = () => page.evaluate(() => new Promise(done => requestAnimationFrame(() => setTimeout(() => {
+    const { angle, songT, tick, speed, beat0 } = window.cat4d.sync(), p = window.fakePlayer;
+    if (songT === null) return done(null);
+    const song = p.at + (tick * 1000 - p.from) / 1000;
+    const d = ((angle / (2 * Math.PI) - speed * (song - beat0)) % 1 + 1.5) % 1 - 0.5;
+    done(Math.abs(d) * 360);
+  }))));
+  const settled = async () => {
+    await page.waitForTimeout(3000);
+    const seen = [];
+    for (let i = 0; i < 12; i++) { seen.push(await off()); await page.waitForTimeout(170); }
+    for (const d of seen) expect(d).toBeLessThan(30);
+  };
+
+  await page.evaluate(() => window.fakePlayer.seekTo(1.13));   // start where a free-running spin would be out of phase
+  await page.click('#play');
+  await expect(page.locator('#play')).toHaveAttribute('aria-pressed', 'true');
+  await settled();
+
+  await page.evaluate(() => window.fakePlayer.seekTo(42.37));   // a seek
+  await settled();
+
+  await page.locator('#beat0').fill('0.2');                     // half a beat later
+  await expect(page.locator('#beat0-out')).toHaveText('0.20 s');
+  await settled();
+
+  await page.locator('#speed').fill('1.25');                    // half time
+  await settled();
+
+  await page.click('#play');                                    // pause: the lock lets go
+  await expect(page.locator('#play')).toHaveAttribute('aria-pressed', 'false');
+  await expect.poll(off).toBeNull();
+  expect(errors).toEqual([]);
+});
+
 test('4D spinning cat: walk, tilt, every view', async ({ page }) => {
   test.setTimeout(180_000);   // software GL is slow to draw this scene
   const errors = watchErrors(page, /fonts\.(googleapis|gstatic)\.com|youtube|ytimg|googlevideo/);
