@@ -23,6 +23,7 @@ import { furMaterial } from './fur.js';
 import { inView, frameMatrix, thickSlice, screenSlice, screenShadow, roundCutter, roundRange, roundLayer } from './slice4d.js';
 import { buildTV, TV } from './tv.js';
 import { SPINS, FACE, BEST, FRAMES, CROSS, pose, filmAngles, trail } from './spins.js';
+import { BEATS_PER_SECOND, songClock, songAngle, phaseError, lockStep } from './beat.js';
 import './cat.css';
 
 const FLOOR_Y = -2.4, EYE_CAT = 4, EYE_TV = 4.5, ANT = 0.3, AHEAD = 6.5;   // AHEAD: how far Best view stands you from the cat
@@ -62,8 +63,9 @@ const VIEW_DESC = {
 };
 
 function main() {
-  const ST = { spin: 'both', speed: 1, layout: 'slice', trails: false };
-  let want = false, angle = 0, rate = 0, antT = 0;
+  const ST = { spin: 'both', speed: BEATS_PER_SECOND, beat0: 0, layout: 'slice', trails: false };
+  let want = false, angle = 0, rate = 0, antT = 0, songT = null, lastTick = performance.now() / 1000;
+  const clock = songClock();
 
   /* ---------- scene ---------- */
   // you walk it on the walker (walk.js): the scene, floor, camera, your state, the View / Move / Rotate panel and the loop
@@ -494,6 +496,9 @@ function main() {
   });
   onButton('spin', b => setSpin(b.dataset.v));
   $('speed').addEventListener('input', e => { ST.speed = +e.target.value; });
+  // Only the default song has a tempo we know, so only it gets a beat to line up with.
+  $('beat-row').hidden = VIDEO !== DEFAULT_VIDEO;
+  $('beat0').addEventListener('input', e => { ST.beat0 = +e.target.value; $('beat0-out').textContent = `${ST.beat0.toFixed(2)} s`; });
   // the view buttons and keys, volume view, walking and Reset are the walker's; Space is ours
   window.addEventListener('keydown', e => {
     if (e.metaKey || e.ctrlKey || e.altKey) return;
@@ -501,7 +506,11 @@ function main() {
   });
   setSpin(ST.spin);
   // For the smoke test: stop the cat at a pose, `deg` degrees into spin `spin`.
-  window.cat4d = { pose(spin, deg) { setWant(false); setSpin(spin); rate = 0; angle = THREE.MathUtils.degToRad(deg); } };
+  // sync gives the angle and the song time it was steered by, to check the lock.
+  window.cat4d = {
+    pose(spin, deg) { setWant(false); setSpin(spin); rate = 0; angle = THREE.MathUtils.degToRad(deg); },
+    sync: () => ({ angle, songT, tick: lastTick, speed: ST.speed, beat0: ST.beat0 }),
+  };
 
   setLayout('slice', false);
   // the labels under the panels of the axis cross and the film strip
@@ -532,11 +541,21 @@ function main() {
       $('ax-hi').textContent = on ? '6 below' : '+6 ana';
     },
     tick(dt) {
-      // about a turn a second while the music plays, easing in and out; the antenna's tesseract never quite stops
-      const goal = want ? ST.speed * (reduceMotion ? 0.3 : 1) : 0;
+      // a turn per beat while the music plays, easing in and out; the antenna's tesseract never quite stops
+      const goal = want ? ST.speed * (reduceMotion ? 0.12 : 1) : 0;
       rate += (goal - rate) * (1 - Math.exp(-dt * 3));
-      angle = (angle + rate * 2 * Math.PI * dt) % (6 * Math.PI);   // 3 turns: a whole period of Both
-      antT += dt * (reduceMotion ? 0.05 : 0.25) + rate * dt;
+      // While the song really is playing, steer toward where its clock says the spin should be. dt is capped for slow
+      // frames, but the song isn't, so this goes by the real time since the last frame or a slow machine loses the beat.
+      const now = performance.now() / 1000, frameTime = now - lastTick;
+      lastTick = now;
+      const synced = want && !reduceMotion && VIDEO === DEFAULT_VIDEO && window.YT && player?.getPlayerState?.() === window.YT.PlayerState.PLAYING;
+      if (!synced) clock.reset();
+      songT = synced ? clock.read(player.getCurrentTime(), now) : null;
+      let step = rate * 2 * Math.PI * (synced ? frameTime : dt);
+      if (synced) step += lockStep(phaseError(angle + step, songAngle(songT, ST.speed, ST.beat0)), frameTime);
+      const LOOP = 6 * Math.PI;   // 3 turns: a whole period of Both
+      angle = (((angle + step) % LOOP) + LOOP) % LOOP;
+      antT += dt * (reduceMotion ? 0.05 : 0.25) + 0.4 * rate * dt;
       walker.redraw();   // it is always moving, or at least its antenna is
     },
     update: updatePanel,
