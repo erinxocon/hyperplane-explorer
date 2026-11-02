@@ -82,7 +82,9 @@ export function createStage({ what, fov = 52, near = 0.05, far = 200, position, 
       renderer.render(scene, camera);
       requestAnimationFrame(tick);
     }
-    requestAnimationFrame(tick);
+    // WebGPU's device comes up asynchronously
+    if (renderer.isWebGPURenderer) renderer.init().then(() => requestAnimationFrame(tick));
+    else requestAnimationFrame(tick);
   };
   return stage;
 }

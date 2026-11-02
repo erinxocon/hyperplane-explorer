@@ -144,8 +144,8 @@ function main() {
     const g = c.mesh.geometry;
     g.setDrawRange(0, o.ni);
     if (!o.ni) return;   // nothing to upload (and an update range of 0 would upload everything)
-    for (const [name, a] of Object.entries(g.attributes)) if (name !== 'shade') { a.updateRange.count = o.nv * a.itemSize; a.needsUpdate = true; }
-    g.index.updateRange.count = o.ni;
+    for (const [name, a] of Object.entries(g.attributes)) if (name !== 'shade') { a.clearUpdateRanges(); a.addUpdateRange(0, o.nv * a.itemSize); a.needsUpdate = true; }
+    g.index.clearUpdateRanges(); g.index.addUpdateRange(0, o.ni);
     g.index.needsUpdate = true;
   }
   let catReach = 0, catR = 0;   // the farthest the cat reaches from its spin axis (for the Stack's spacing) and from its center

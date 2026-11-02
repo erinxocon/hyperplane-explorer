@@ -7,12 +7,20 @@ export const $ = id => document.getElementById(id);
 export const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 // A WebGL renderer, its canvas first in `view`, or null with a note there that `what` can't be drawn without WebGL.
+// three r155 removed legacy lights, so light intensities are written as before, times LIGHT.
+export const LIGHT = Math.PI;
+// ?renderer=webgpu tries three's WebGPURenderer (it falls back to its own WebGL2 backend without WebGPU), and
+// ?renderer=webgpu-gl forces that backend. Loaded only then, because it is a far bigger bundle.
+const wantRenderer = typeof location !== 'undefined' ? new URLSearchParams(location.search).get('renderer') : null;
+const wantGPU = wantRenderer === 'webgpu' || wantRenderer === 'webgpu-gl';
+export const GPU = wantGPU ? await import('three/webgpu') : null;
 export function createRenderer(view, what) {
   let renderer;
-  try { renderer = new THREE.WebGLRenderer({ antialias: true }); }
+  try { renderer = GPU ? new GPU.WebGPURenderer({ antialias: true, forceWebGL: wantRenderer === 'webgpu-gl' }) : new THREE.WebGLRenderer({ antialias: true }); }
   catch (e) { view.insertAdjacentHTML('beforeend', `<div class="err">WebGL is not available in this browser, so ${what} cannot be drawn.</div>`); return null; }
   renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
   view.prepend(renderer.domElement);
+  window.__renderer = renderer;   // in the console, __renderer.backend tells you which backend you got
   return renderer;
 }
 // A segmented control (an element of buttons with data-v): show the one for v as pressed, or call fn(button) on a click.

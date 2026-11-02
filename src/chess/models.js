@@ -1,13 +1,13 @@
 // Geometry for the 4D chess page, built from three.js primitives: the pieces, and the stand that holds one 3D board.
 // Pieces stand on y = 0 and face −z, away from white's side.
 import * as THREE from 'three';
-import { mergeBufferGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { PAWN, KNIGHT, BISHOP, UNICORN, ROOK, QUEEN, KING } from './rules.js';
 
 const lathe = pts => new THREE.LatheGeometry(pts.map(([r, h]) => new THREE.Vector2(r, h)), 32);
 const ball = (r, y, x = 0, z = 0) => new THREE.SphereGeometry(r, 20, 14).translate(x, y, z);
 const box = (w, h, d, x, y, z) => new THREE.BoxGeometry(w, h, d).translate(x, y, z);
-const merge = parts => mergeBufferGeometries(parts.map(g => (g.index ? g.toNonIndexed() : g)));
+const merge = parts => mergeGeometries(parts.map(g => (g.index ? g.toNonIndexed() : g)));
 const BASE = [[0, 0], [0.27, 0], [0.28, 0.025], [0.27, 0.06], [0.2, 0.085]];
 const ring = (n, r, y, part) => Array.from({ length: n }, (_, k) => { const a = (k + 0.5) * 2 * Math.PI / n; return part(r * Math.cos(a), y, r * Math.sin(a)); });
 
