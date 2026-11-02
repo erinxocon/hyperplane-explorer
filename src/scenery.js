@@ -1,5 +1,10 @@
 // Scene pieces shared by the explorer and the cat page: the 4D floor, your marker, and Shadow's depth shading and tubes.
 import * as THREE from 'three';
+import { GPU } from './utils.js';
+import FLOOR_VS from './shaders/floor.vert.glsl?raw';
+import FLOOR_FS from './shaders/floor.frag.glsl?raw';
+
+const floorTSL = GPU ? await import('./shaders/floor.tsl.js') : null;
 
 // A CSS custom property from :root, such as a color token from styles.css.
 export const tok = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
@@ -7,26 +12,14 @@ export const tok = n => getComputedStyle(document.documentElement).getPropertyVa
 // Floor: the 4D hyperplane y = floorY, cut by your slice. Checker is on world (x, z, w), so the tiles shift as you move
 // ana/kata or rotate the slice. It fades out from fade[0] to fade[1] around (0, fade[2]) in the scene's x–z.
 export function createFloor(bg, fade) {
-  const mat = new THREE.ShaderMaterial({
+  const colors = { cA: new THREE.Color(tok('--floor-a')), cB: new THREE.Color(tok('--floor-b')), cW: new THREE.Color(tok('--floor-w')), cBg: bg };
+  const mat = floorTSL ? floorTSL.floorMaterial(colors, fade) : new THREE.ShaderMaterial({
     uniforms: {
       uP: { value: new THREE.Vector4() }, uR: { value: new THREE.Vector4() }, uU: { value: new THREE.Vector4() }, uF: { value: new THREE.Vector4() },
-      cA: { value: new THREE.Color(tok('--floor-a')) }, cB: { value: new THREE.Color(tok('--floor-b')) }, cW: { value: new THREE.Color(tok('--floor-w')) },
-      cBg: { value: bg }, uFade: { value: new THREE.Vector3(...fade) },
+      cA: { value: colors.cA }, cB: { value: colors.cB }, cW: { value: colors.cW }, cBg: { value: bg }, uFade: { value: new THREE.Vector3(...fade) },
     },
-    vertexShader: 'varying vec3 vPos; void main(){ vec4 wp = modelMatrix * vec4(position,1.0); vPos = wp.xyz; gl_Position = projectionMatrix * viewMatrix * wp; }',
-    fragmentShader: `
-      uniform vec4 uP, uR, uU, uF; uniform vec3 cA, cB, cW, cBg, uFade; varying vec3 vPos;
-      void main(){
-        vec4 X = uP + vPos.x * uR + vPos.y * uU + (-vPos.z) * uF;
-        vec3 q = floor(vec3(X.x, X.z, X.w));
-        vec3 col = mix(cA, cB, mod(q.x + q.y + q.z, 2.0));
-        float grad = length(vec2(uR.w, uF.w));      // tilted into w: mark where the floor crosses integer w
-        float wl = abs(fract(X.w + 0.5) - 0.5) / max(grad, 1e-3);
-        col = mix(col, cW, smoothstep(0.07, 0.0, wl) * smoothstep(0.02, 0.12, grad) * 0.9);
-        float fade = 1.0 - smoothstep(uFade.x, uFade.y, length(vPos.xz - vec2(0.0, uFade.z)));
-        gl_FragColor = vec4(mix(cBg, col, fade), 1.0);
-        #include <colorspace_fragment>
-      }`,
+    vertexShader: FLOOR_VS,
+    fragmentShader: FLOOR_FS,
   });
   const mesh = new THREE.Mesh(new THREE.PlaneGeometry(90, 90), mat);
   mesh.rotation.x = -Math.PI / 2;

@@ -7,12 +7,18 @@ import * as THREE from 'three';
 import { add, sub, mul, dot } from '../math4d.js';
 import { stackOffs } from '../hud.js';
 import { local, projector } from './draw.js';
-import GLOBE_VS from '../shaders/globe.vert.glsl?raw';
-import GLOBE_FS from '../shaders/globe.frag.glsl?raw';
-import SURF_VS from '../shaders/earth-cap.vert.glsl?raw';
-import SURF_FS from '../shaders/earth-cap.frag.glsl?raw';
-import EARTH_GLSL from '../shaders/earth-surface.glsl?raw';
+import GLOBE_VS from '../explorer/shaders/globe.vert.glsl?raw';
+import GLOBE_FS from '../explorer/shaders/globe.frag.glsl?raw';
+import SURF_VS from '../explorer/shaders/earth-cap.vert.glsl?raw';
+import SURF_FS from '../explorer/shaders/earth-cap.frag.glsl?raw';
+import EARTH_GLSL from '../explorer/shaders/earth-surface.glsl?raw';
 import landMaskUrl from '../assets/land-mask.png';
+import { GPU } from '../utils.js';
+
+// On WebGPURenderer the shaders are the TSL ones, and a uniform is a TSL node, which has .value just the same.
+const TSL = GPU ? await import('three/tsl') : null;
+const globeTSL = GPU ? await import('../explorer/shaders/globe.tsl.js') : null, capTSL = GPU ? await import('../explorer/shaders/earth-cap.tsl.js') : null;
+const param = TSL ? TSL.uniform : value => ({ value });
 
 // directions of the lines joining the caps in Shadow
 const LINKS = [];
@@ -22,19 +28,19 @@ export function setupEarth(o) {
   const land = new THREE.TextureLoader().load(landMaskUrl);
   land.wrapS = THREE.RepeatWrapping; land.minFilter = THREE.LinearFilter; land.generateMipmaps = false;
   o.uni = {
-    uCx: { value: new THREE.Vector4() }, uCy: { value: new THREE.Vector4() }, uCz: { value: new THREE.Vector4() },
-    uR: { value: o.radius }, uH: { value: o.thick }, uSpin: { value: 0 }, uPV: { value: new THREE.Matrix4() },
-    uLight: { value: new THREE.Vector3(4, 9, 6).normalize() }, uLand: { value: land },
+    uCx: param(new THREE.Vector4()), uCy: param(new THREE.Vector4()), uCz: param(new THREE.Vector4()),
+    uR: param(o.radius), uH: param(o.thick), uSpin: param(0), uPV: { value: new THREE.Matrix4() },
+    uLight: param(new THREE.Vector3(4, 9, 6).normalize()), uLand: { value: land },
   };
   const box = new THREE.BoxGeometry(2, 2, 2);
   o.proxies = [0, 1, 2].map(() => {
-    const px = new THREE.Mesh(box, new THREE.ShaderMaterial({ uniforms: { ...o.uni, uQ: { value: new THREE.Vector4() }, uShift: { value: new THREE.Vector3() } }, vertexShader: GLOBE_VS, fragmentShader: EARTH_GLSL + GLOBE_FS, side: THREE.BackSide }));
+    const px = new THREE.Mesh(box, globeTSL ? globeTSL.globeMaterial(o.uni, land) : new THREE.ShaderMaterial({ uniforms: { ...o.uni, uQ: { value: new THREE.Vector4() }, uShift: { value: new THREE.Vector3() } }, vertexShader: GLOBE_VS, fragmentShader: EARTH_GLSL + GLOBE_FS, side: THREE.BackSide }));
     o.group.add(px); return px;
   });
   o.caps = [0, 1].map(() => {
     const g = new THREE.SphereGeometry(1, 48, 32);
     g.setAttribute('aDir', g.getAttribute('position').clone());
-    const mesh = new THREE.Mesh(g, new THREE.ShaderMaterial({ uniforms: { uLand: o.uni.uLand, uSpin: o.uni.uSpin, uLight: o.uni.uLight, uAlpha: { value: 1 }, uCenter: { value: new THREE.Vector3() } }, vertexShader: SURF_VS, fragmentShader: EARTH_GLSL + SURF_FS, side: THREE.DoubleSide }));
+    const mesh = new THREE.Mesh(g, capTSL ? capTSL.earthCapMaterial(o.uni, land) : new THREE.ShaderMaterial({ uniforms: { uLand: o.uni.uLand, uSpin: o.uni.uSpin, uLight: o.uni.uLight, uAlpha: { value: 1 }, uCenter: { value: new THREE.Vector3() } }, vertexShader: SURF_VS, fragmentShader: EARTH_GLSL + SURF_FS, side: THREE.DoubleSide }));
     o.group.add(mesh); return mesh;
   });
   o.links = new THREE.LineSegments(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: 0x8fc0ee, transparent: true, opacity: 0.7 }));
