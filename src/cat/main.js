@@ -522,9 +522,16 @@ function main() {
   setSpin(ST.spin);
   // For the smoke test: stop the cat at a pose, `deg` degrees into spin `spin`.
   // sync gives the angle and the song time it was steered by, to check the lock.
+  // wgsl is for you, at the console: it logs the GPU cut's shaders and returns them, so copy((await cat4d.wgsl()).vertex) works.
   window.cat4d = {
     pose(spin, deg) { setWant(false); setSpin(spin); rate = 0; angle = THREE.MathUtils.degToRad(deg); },
     sync: () => ({ angle, songT, tick: lastTick, speed: ST.speed, beat0: ST.beat0 }),
+    async wgsl() {
+      if (!cutTSL || !renderer.backend.isWebGPUBackend) { console.warn('cat4d.wgsl: the GPU cut only runs with ?renderer=webgpu, in a browser with WebGPU'); return null; }
+      const code = await cutAt(0).gpu.wgsl(scene, camera);
+      for (const [name, text] of Object.entries(code)) { console.groupCollapsed(`${name} (${text.length} chars)`); console.log(text); console.groupEnd(); }
+      return code;
+    },
   };
 
   setLayout('slice', false);
