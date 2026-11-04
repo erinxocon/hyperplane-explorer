@@ -112,7 +112,7 @@ export function roundCutter(src, carry, K = 8) {
   }
   // A prism's corners: 0, 1, 2 are its triangle's corners a < b < c at step k, and 3, 4, 5 the same at step k + 1. Each
   // quad face is split from its lower-numbered corner at k to the other at k + 1, which gives these three tetrahedra.
-  const TETS = [[0, 1, 2, 5], [0, 1, 4, 5], [0, 3, 4, 5]], EDGE_OF = [[-1, 0, 2], [0, -1, 1], [2, 1, -1]];
+  const TETS = CUT_TETS, EDGE_OF = [[-1, 0, 2], [0, -1, 1], [2, 1, -1]];
   // the vertices made so far in this cut, by edge: upright (point, step), level (edge, step) and slanted (edge, step)
   const [UP, LEVEL, SLANT] = [N * (L - 1), E * L, E * (L - 1)].map(m => ({ id: new Int32Array(m), at: new Uint32Array(m) }));
   // per point, this cut: G·s and G·n (xyz), g·s − off and g·n; and a at every step
@@ -138,8 +138,15 @@ export function roundCutter(src, carry, K = 8) {
   }
   const newVertex = () => { if (out.nv === out.cap) grow(out, 2 * out.cap, out.icap); return out.nv++; };
   // finish vertex v: its normal so far in its nrm slot, made unit length
-  const unit = v => { const Q = out.nrm, l = Math.hypot(Q[3 * v], Q[3 * v + 1], Q[3 * v + 2]) || 1; Q[3 * v] /= l; Q[3 * v + 1] /= l; Q[3 * v + 2] /= l; };
-  // vertex v's carried attributes, t of the way from skin point i to j (or, not fromSkin, from cut vertex i to j)
+  const unit = v => { const Q = out.nrm, x = Q[3 * v], y = Q[3 * v + 1], z = Q[3 * v + 2], l = Math.sqrt(x * x + y * y + z * z) || 1; Q[3 * v] = x / l; Q[3 * v + 1] = y / l; Q[3 * v + 2] = z / l; };
+  // vertex v's carried attributes: skin point i's
+  function copyCarry(v, i) {
+    for (let jj = 0; jj < carry.length; jj++) {
+      const C = out.carried[jj], S = carry[jj].array, z = carry[jj].size;
+      for (let q = 0; q < z; q++) C[z * v + q] = S[z * i + q];
+    }
+  }
+  // the same, t of the way from skin point i to j (or, not fromSkin, from cut vertex i to j)
   function lerpCarry(v, i, j, t, fromSkin) {
     for (let jj = 0; jj < carry.length; jj++) {
       const C = out.carried[jj], S = fromSkin ? carry[jj].array : C, z = carry[jj].size;
@@ -155,12 +162,12 @@ export function roundCutter(src, carry, K = 8) {
     }
     out.w[v] = r * sn;
     unit(v);
-    lerpCarry(v, i, i, 0, true);
+    copyCarry(v, i);
     return v;
   }
   // On the way from point i at step ki to point j at step kj, where the cut crosses: skin point, normal, depth and θ in
   // proportion t, which regula falsi on a(t) finds from its values fi and fj at the ends.
-  const lenAt = (i, j, t) => Math.hypot(n[3 * i] + (n[3 * j] - n[3 * i]) * t, n[3 * i + 1] + (n[3 * j + 1] - n[3 * i + 1]) * t, n[3 * i + 2] + (n[3 * j + 2] - n[3 * i + 2]) * t) || 1;
+  const lenAt = (i, j, t) => { const x = n[3 * i] + (n[3 * j] - n[3 * i]) * t, y = n[3 * i + 1] + (n[3 * j + 1] - n[3 * i + 1]) * t, z = n[3 * i + 2] + (n[3 * j + 2] - n[3 * i + 2]) * t; return Math.sqrt(x * x + y * y + z * z) || 1; };
   const thAt = (ki, kj, t) => TH[ki] + (TH[kj] - TH[ki]) * t;
   function aBetween(i, ki, j, kj, t) {
     const th = thAt(ki, kj, t), r = rad[i] + (rad[j] - rad[i]) * t;
@@ -203,11 +210,13 @@ export function roundCutter(src, carry, K = 8) {
   function upright(i, kk) {
     const m = i * (L - 1) + kk, have = seen(UP, m);
     if (have >= 0) return have;
-    const c = i * L + kk, lo = TH[kk], hi = TH[kk + 1], B0 = rad[i] * AN[i], C0 = rad[i] * gw, A0 = AS[i] - B0, rho = Math.hypot(B0, C0);
+    const c = i * L + kk, lo = TH[kk], hi = TH[kk + 1], B0 = rad[i] * AN[i], C0 = rad[i] * gw, A0 = AS[i] - B0, rho = Math.sqrt(B0 * B0 + C0 * C0);
     let th = lo + (hi - lo) * A[c] / (A[c] - A[c + 1]);   // in proportion, if the roots won't do
     if (rho > 1e-12 && Math.abs(A0) <= rho) {
       const phi = Math.atan2(C0, B0), al = Math.acos(-A0 / rho), e = 1e-6;
-      for (const root of [wrap(phi + al), wrap(phi - al)]) if (root >= lo - e && root <= hi + e) { th = root; break; }
+      const r1 = wrap(phi + al), r2 = wrap(phi - al);
+      if (r1 >= lo - e && r1 <= hi + e) th = r1;
+      else if (r2 >= lo - e && r2 <= hi + e) th = r2;
     }
     return keep(UP, m, vertexAt(i, th));
   }
@@ -219,13 +228,13 @@ export function roundCutter(src, carry, K = 8) {
     if (kp === kq) {   // level: from the lower-numbered corner
       const m = e * L + kp, have = seen(LEVEL, m);
       if (have >= 0) return have;
-      const [lo, hi] = u < w ? [p, q] : [q, p];
+      const lo = u < w ? p : q, hi = u < w ? q : p;
       return keep(LEVEL, m, vertexBetween(V[lo % 3], kp, V[hi % 3], kp, val[lo], val[hi]));
     }
     // slanted, from the bottom corner (the lower-numbered one) to the top
     const m = e * (L - 1) + k, have = seen(SLANT, m);
     if (have >= 0) return have;
-    const [bot, top] = kp < kq ? [p, q] : [q, p], i = V[bot % 3], j = V[top % 3];
+    const bot = kp < kq ? p : q, top = kp < kq ? q : p, i = V[bot % 3], j = V[top % 3];
     // a face crossed the simple way (on both upright edges, at this step) is cut straight between those two crossings,
     // as the prism beside it may cut it: snap this vertex onto that line so the two sides meet
     const ci = i * L + k, cj = j * L + k;
@@ -249,14 +258,14 @@ export function roundCutter(src, carry, K = 8) {
   // marching tetrahedra: a plane through the crossings of one of the prism's tetrahedra
   function tetrahedron(tet) {
     let nn = 0, np = 0;
-    for (const p of tet) if (val[p] < 0) NEG[nn++] = p; else POS[np++] = p;
+    for (let c = 0; c < 4; c++) { const p = tet[c]; if (val[p] < 0) NEG[nn++] = p; else POS[np++] = p; }
     if (!nn || !np) return;
     if (nn === 2) {
       const p = NEG[0], q = NEG[1], r = POS[0], w = POS[1], pr = crossing(p, r), pw = crossing(p, w), qw = crossing(q, w), qr = crossing(q, r);
       triangle(pr, pw, qw); triangle(pr, qw, qr);
       return;
     }
-    const [one, rest] = nn === 1 ? [NEG[0], POS] : [POS[0], NEG];
+    const one = nn === 1 ? NEG[0] : POS[0], rest = nn === 1 ? POS : NEG;
     triangle(crossing(one, rest[0]), crossing(one, rest[1]), crossing(one, rest[2]));
   }
 
@@ -286,7 +295,7 @@ export function roundCutter(src, carry, K = 8) {
         let pos = 0;
         for (let p = 0; p < 6; p++) if ((val[p] = A[V[p % 3] * L + k + (p >= 3)]) >= 0) pos |= 1 << p;
         if (pos === 7 || pos === 56) { triangle(upright(V[0], k), upright(V[1], k), upright(V[2], k)); continue; }   // the simple way
-        for (const tet of TETS) tetrahedron(tet);
+        tetrahedron(TETS[0]); tetrahedron(TETS[1]); tetrahedron(TETS[2]);
       }
     }
     return out;
@@ -320,4 +329,74 @@ export function roundLayer(src, w) {
     p[4 * i + 3] = wi;
   }
   return p;
+}
+
+// Shadow projects a layer of the cat from an eye E ana of its center: X ↦ at + k·(G·X)xyz, k = E/max(0.3E, E − a), with
+// a the w row of G·X. That runs per vertex in the shader (shaders/fur-shadow.vert.glsl, fur.tsl.js), and these are its
+// terms. A projected triangle's normal, from corners differing by e and f, is Je × Jf for the map's Jacobian J. That is
+// linear in the bivector e∧f, so each vertex can keep the sum of its triangles' bivectors, which never change, and any
+// projection of them gives the area-weighted normal from six cross products of J's columns.
+// layerBivectors(p4, tris): per vertex (xyzw in p4), the unit sum of its triangles' e∧f, as e01 e02 e03 e12 e13 e23.
+export function layerBivectors(p4, tris) {
+  const N = p4.length / 4, B = new Float32Array(6 * N), sum = new Float64Array(6 * N), e = [0, 0, 0, 0], f = [0, 0, 0, 0];
+  for (let t = 0; t < tris.length; t += 3) {
+    const a = tris[t], b = tris[t + 1], c = tris[t + 2];   // as computeVertexNormals: (c − b) × (a − b)
+    for (let q = 0; q < 4; q++) { e[q] = p4[4 * c + q] - p4[4 * b + q]; f[q] = p4[4 * a + q] - p4[4 * b + q]; }
+    let j = 0;
+    for (let u = 0; u < 3; u++) for (let v = u + 1; v < 4; v++, j++) {
+      const w = e[u] * f[v] - e[v] * f[u];
+      sum[6 * a + j] += w; sum[6 * b + j] += w; sum[6 * c + j] += w;
+    }
+  }
+  for (let i = 0; i < N; i++) {
+    let l = 0;
+    for (let j = 0; j < 6; j++) l += sum[6 * i + j] * sum[6 * i + j];
+    l = Math.sqrt(l) || 1;
+    for (let j = 0; j < 6; j++) B[6 * i + j] = sum[6 * i + j] / l;
+  }
+  return B;
+}
+// The same projection as the shader's, for one point: its place in the scene, and its normal (not unit length) from
+// bivector B (offset o in the array). G is row-major.
+export function shadowVertex(G, at, E, p, B, o = 0) {
+  const q = [0, 1, 2, 3].map(i => G[4 * i] * p[0] + G[4 * i + 1] * p[1] + G[4 * i + 2] * p[2] + G[4 * i + 3] * p[3]);
+  const gap = E - q[3], k = E / Math.max(0.3 * E, gap), slope = gap > 0.3 * E ? k / E : 0;
+  const col = a => [0, 1, 2].map(i => G[4 * i + a] + slope * q[i] * G[12 + a]);
+  const nrm = [0, 0, 0];
+  let j = 0;
+  for (let u = 0; u < 3; u++) for (let v = u + 1; v < 4; v++, j++) {
+    const a = col(u), b = col(v), w = B[o + j];
+    nrm[0] += w * (a[1] * b[2] - a[2] * b[1]); nrm[1] += w * (a[2] * b[0] - a[0] * b[2]); nrm[2] += w * (a[0] * b[1] - a[1] * b[0]);
+  }
+  return { pos: [at[0] + q[0] * k, at[1] + q[1] * k, at[2] + q[2] * k], nrm, a: q[3], k };
+}
+
+// The cutter's cases as a table, for doing the same cut on the GPU (shaders/cut.tsl.js): which triangles a prism gives,
+// going only by which of its six corners are ana (bit p of the index: corner p is ana). Each triangle is three edges of
+// the prism, each an index into EDGES ([p, q], p < q), packed 4 bits apiece. tris[start[m]] up to tris[start[m + 1]] are
+// mask m's. It follows roundCutter: the simple way when only the upright edges cross, else the three tetrahedra.
+export const CUT_TETS = [[0, 1, 2, 5], [0, 1, 4, 5], [0, 3, 4, 5]];
+export function cutCases() {
+  const EDGES = [];
+  for (let p = 0; p < 6; p++) for (let q = p + 1; q < 6; q++) EDGES.push([p, q]);
+  const code = (p, q) => EDGES.findIndex(e => e[0] === Math.min(p, q) && e[1] === Math.max(p, q));
+  const pack = (a, b, c) => a | (b << 4) | (c << 8);
+  const start = new Uint32Array(65), tris = [];
+  for (let m = 0; m < 64; m++) {
+    start[m] = tris.length;
+    if (m === 7 || m === 56) { tris.push(pack(code(0, 3), code(1, 4), code(2, 5))); continue; }
+    for (const tet of CUT_TETS) {
+      const neg = tet.filter(p => !(m >> p & 1)), pos = tet.filter(p => m >> p & 1);
+      if (!neg.length || !pos.length) continue;
+      if (neg.length === 2) {
+        const [p, q] = neg, [r, w] = pos;
+        tris.push(pack(code(p, r), code(p, w), code(q, w)), pack(code(p, r), code(q, w), code(q, r)));
+      } else {
+        const [one, rest] = neg.length === 1 ? [neg[0], pos] : [pos[0], neg];
+        tris.push(pack(code(one, rest[0]), code(one, rest[1]), code(one, rest[2])));
+      }
+    }
+  }
+  start[64] = tris.length;
+  return { EDGES, start, tris: Uint32Array.from(tris) };
 }

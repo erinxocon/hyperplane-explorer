@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { rot, mm, mv, ident } from '../../src/math4d.js';
 import * as THREE from 'three';
-import { thickSlice, inView, clipRect, screenSlice, screenShadow, roundCutter, roundRange, roundLayer } from '../../src/cat/slice4d.js';
+import { thickSlice, inView, clipRect, screenSlice, screenShadow, roundCutter, roundRange, roundLayer, layerBivectors, shadowVertex, cutCases } from '../../src/cat/slice4d.js';
 
 const det3 = m => m[0] * (m[4] * m[8] - m[5] * m[7]) - m[1] * (m[3] * m[8] - m[5] * m[6]) + m[2] * (m[3] * m[7] - m[4] * m[6]);
 const near = (a, b, eps = 1e-9) => assert.ok(Math.abs(a - b) < eps, `${a} vs ${b}`);
@@ -148,6 +148,68 @@ test('a layer at w is each point pushed in by r − √(r² − w²), or to its 
     near(L[4 * i + 3], wi, 1e-6);
     near(Math.hypot(L[4 * i], L[4 * i + 1], L[4 * i + 2]), R - r + Math.sqrt(r * r - wi * wi), 1e-5);
   }
+});
+
+test('the cut case table gives the JS cutter its triangles, turned any way', () => {
+  // A prism's triangles by its corners' signs, as the GPU counts them. The cutter drops a triangle only when two of its
+  // corners are the same vertex, which the table can't see, so the table may have a few more and never fewer.
+  const { start, tris } = cutCases(), K = 8, L = 2 * K + 1, T = ball.tris;
+  const COS = Array.from({ length: L }, (_, k) => Math.cos((k - K) * Math.PI / 2 / K)), SIN = Array.from({ length: L }, (_, k) => Math.sin((k - K) * Math.PI / 2 / K));
+  const poses = [[ident(), 0], [ident(), 0.2], [mm(rot(0, 3, 0.7), rot(0, 2, 0.4)), 0.15], [mm(rot(1, 3, 1.9), rot(0, 2, 2.2)), -0.2], [rot(2, 3, Math.PI / 2), 0.1]];
+  for (const [G, off] of poses) {
+    const sign = new Uint32Array(N);
+    for (let i = 0; i < N; i++) {
+      const [sx, sy, sz] = ball.s.subarray(3 * i), [nx, ny, nz] = ball.n.subarray(3 * i), r = ball.r[i];
+      const as = G[12] * sx + G[13] * sy + G[14] * sz - off, an = G[12] * nx + G[13] * ny + G[14] * nz;
+      for (let k = 0; k < L; k++) if (as + r * (an * (COS[k] - 1) + G[15] * SIN[k]) >= 0) sign[i] |= 1 << k;
+    }
+    let count = 0;
+    for (let t = 0; t < T.length; t += 3) {
+      const [a, b, c] = [T[t], T[t + 1], T[t + 2]].sort((x, y) => x - y);
+      for (let k = 0; k < L - 1; k++) {
+        const low = (sign[a] >> k & 1) | (sign[b] >> k & 1) << 1 | (sign[c] >> k & 1) << 2, high = (sign[a] >> (k + 1) & 1) | (sign[b] >> (k + 1) & 1) << 1 | (sign[c] >> (k + 1) & 1) << 2;
+        const m = low | high << 3;
+        count += start[m + 1] - start[m];
+      }
+    }
+    const got = cutter.cut(G, off, buf).ni / 3;
+    assert.ok(count >= got && count - got <= 0.02 * got + 8, `table ${count}, cutter ${got}`);
+  }
+  assert.equal(start[1] - start[0], 0);    // all kata
+  assert.equal(start[64] - start[63], 0);  // all ana
+  assert.equal(start[8] - start[7], 1);    // the simple way
+  assert.ok(tris.every(v => v < 1 << 12));
+});
+
+test("Shadow's shader math gives the normals of the projected mesh, turned any way and with the eye close", () => {
+  const E = 2.2, at = [0.4, -0.3, 1.1];
+  const poses = [ident(), mm(rot(0, 3, 0.7), rot(0, 2, 0.4)), mm(rot(1, 3, 1.9), rot(0, 2, 2.2)), mm(rot(2, 3, 2.8), rot(0, 1, 1))];
+  for (const w of [0, 0.25, -0.25]) for (const G of poses) {
+    const L = roundLayer(ball, w), B = layerBivectors(L, ball.tris);
+    const at4 = i => [L[4 * i], L[4 * i + 1], L[4 * i + 2], L[4 * i + 3]];
+    const P = new Float32Array(3 * N), got = [];
+    for (let i = 0; i < N; i++) { const v = shadowVertex(G, at, E, at4(i), B, 6 * i); P.set(v.pos, 3 * i); got.push(new THREE.Vector3(...v.nrm).normalize()); }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(P, 3));
+    g.setIndex(new THREE.BufferAttribute(ball.tris, 1));
+    g.computeVertexNormals();
+    const want = g.getAttribute('normal');
+    // the sphere's seam and poles have vertices shared with no triangle or only slivers; the rest are many small triangles
+    let worst = 1, count = 0;
+    for (let i = 0; i < N; i++) {
+      const u = new THREE.Vector3().fromBufferAttribute(want, i);
+      if (u.lengthSq() < 0.5 || got[i].lengthSq() < 0.5) continue;
+      worst = Math.min(worst, u.dot(got[i])); count++;
+    }
+    assert.ok(count > N / 2);
+    assert.ok(worst > 0.995, `normals differ: worst dot ${worst}`);
+  }
+});
+
+test("Shadow's projection stops at the near limit, as the eye's clamp says", () => {
+  const E = 1, near_ = shadowVertex(ident(), [0, 0, 0], E, [0.1, 0, 0, 5], new Float32Array(6));
+  near(near_.k, 1 / 0.3, 1e-9);
+  near(near_.pos[0], 0.1 / 0.3, 1e-9);
 });
 
 test('a slab rounds into a circle in w: its two faces meet with no ridge', () => {

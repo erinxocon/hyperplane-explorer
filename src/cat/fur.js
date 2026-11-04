@@ -12,6 +12,7 @@ import * as THREE from 'three';
 import { LAND } from './model.js';
 import { GPU } from '../utils.js';
 import FUR_GLSL from './shaders/fur.glsl?raw';
+import SHADOW_GLSL from './shaders/fur-shadow.vert.glsl?raw';
 
 const furTSL = GPU ? await import('./shaders/fur.tsl.js') : null;
 
@@ -22,20 +23,24 @@ const float EYE_R = ${f1(LAND.eyeR)}, BODY_Y = ${f1(LAND.bodyY)}, BACK_Y = ${f1(
 const float FEET = ${f1(LAND.feet)}, TOE = ${f1(LAND.toe)}, SOCK = ${f1(LAND.sock)};
 ` + FUR_GLSL;
 
-// colors: { dark, base, light, cream, white, iris, pupil, nose, ear } as CSS color strings
-export function furMaterial(colors, params = {}) {
-  if (furTSL) return furTSL.furMaterial(colors, LAND, params);
+// colors: { dark, base, light, cream, white, iris, pupil, nose, ear } as CSS color strings. shadow, for Shadow's layers:
+// { G (a Matrix4), at (a Vector3), eye, half, tint, kata, ana }, shared with the page, which sets G and at each frame; the
+// vertex shader then projects the layer's 4D point (position, catW) through them, and the geometry never changes.
+export function furMaterial(colors, params = {}, shadow = null) {
+  if (furTSL) return furTSL.furMaterial(colors, LAND, params, shadow);
   const uniforms = Object.fromEntries(Object.entries(colors).map(([k, v]) => ['c' + k[0].toUpperCase() + k.slice(1), { value: new THREE.Color(v) }]));
   const m = new THREE.MeshStandardMaterial({ roughness: 0.9, envMapIntensity: 0.6, ...params });
   m.onBeforeCompile = sh => {
     Object.assign(sh.uniforms, uniforms);
+    if (shadow) Object.assign(sh.uniforms, { uG: { value: shadow.G }, uAt: { value: shadow.at }, uEye: { value: shadow.eye }, uHalf: { value: shadow.half }, uTint: { value: shadow.tint }, uKata: { value: shadow.kata }, uAna: { value: shadow.ana } });
     sh.vertexShader = sh.vertexShader
-      .replace('#include <common>', '#include <common>\nattribute vec3 catPos, anchor; attribute float part, catW; attribute vec4 shade, region;\nvarying vec3 vCat, vAnchor; varying float vPart, vCatW; varying vec4 vShade, vRegion;')
-      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvCat = catPos; vAnchor = anchor; vPart = part; vCatW = catW; vShade = shade; vRegion = region;');
+      .replace('#include <common>', `#include <common>\nattribute vec3 catPos, anchor; attribute float part, catW; attribute vec4 region;${shadow ? SHADOW_GLSL : 'attribute vec4 shade;'}\nvarying vec3 vCat, vAnchor; varying float vPart, vCatW; varying vec4 vShade, vRegion;`)
+      .replace('#include <beginnormal_vertex>', shadow ? 'vec3 objectNormal = shadowNormal(vec4(position, catW));' : '#include <beginnormal_vertex>')
+      .replace('#include <begin_vertex>', `${shadow ? 'vec3 transformed = uAt + shadowQ.xyz * shadowK; vShade = shadowShade();' : '#include <begin_vertex>\nvShade = shade;'}\nvCat = catPos; vAnchor = anchor; vPart = part; vCatW = catW; vRegion = region;`);
     sh.fragmentShader = sh.fragmentShader
       .replace('#include <common>', '#include <common>\n' + FUR)
       .replace('vec4 diffuseColor = vec4( diffuse, opacity );', 'vec4 diffuseColor = vec4( catColor( vCat, vPart, vAnchor, vRegion, vCatW ) * vShade.a + vShade.rgb, opacity );');
   };
-  m.customProgramCacheKey = () => 'cat-fur';
+  m.customProgramCacheKey = () => (shadow ? 'cat-fur-shadow' : 'cat-fur');
   return m;
 }

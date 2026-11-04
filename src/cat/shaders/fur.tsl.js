@@ -3,7 +3,7 @@
 import * as THREE from 'three';
 import { MeshStandardNodeMaterial } from 'three/webgpu';
 import {
-  abs, attribute, clamp, cross, dot, float, floor, Fn, fract, If, length, mat3, max, mix, normalize, sign, sin, smoothstep, step, vec2, vec3,
+  abs, attribute, clamp, cross, dot, float, floor, Fn, fract, If, length, mat3, max, mix, normalLocal, normalize, positionGeometry, select, sign, sin, smoothstep, step, uniform, varying, vec2, vec3, vec4,
 } from 'three/tsl';
 
 const f = (name, inputs, type, fn) => Fn(fn).setLayout({ name, type, inputs: Object.entries(inputs).map(([n, t]) => ({ name: n, type: t })) });
@@ -30,7 +30,9 @@ const SKEW = mat3(0.8, 0.36, -0.48, -0.6, 0.48, -0.64, 0, 0.8, 0.6), SKEW2 = mat
 const WDIR = vec3(0.62, -0.47, 0.63);
 
 // colors: { dark, base, light, cream, white, iris, pupil, nose, ear } as CSS color strings; LAND: the model's landmarks
-function catColorNode(colors, LAND) {
+// inputs: the nodes it paints from, by default the geometry's attributes: { catPos, part, anchor, region, w, shade }
+export function catColorNode(colors, LAND, inputs = {}) {
+  const { catPos = attribute('catPos', 'vec3'), part = attribute('part', 'float'), anchor = attribute('anchor', 'vec3'), region = attribute('region', 'vec4'), w: catW = attribute('catW', 'float'), shade = attribute('shade', 'vec4') } = inputs;
   // constants: they never change, and uniforms inside named functions came out under another material's names
   const c = Object.fromEntries(Object.entries(colors).map(([k, v]) => { const { r, g, b } = new THREE.Color(v); return [k, vec3(r, g, b)]; }));
   const HEAD = vec3(...LAND.head), HEAD_R = vec3(...LAND.headR), EYE = vec3(...LAND.eye.map(Math.abs)), CHEST = vec3(...LAND.chest);
@@ -112,13 +114,39 @@ function catColorNode(colors, LAND) {
     return col;
   });
 
-  const shade = attribute('shade', 'vec4');   // Shadow's tint: color·a + rgb
-  return catColor(attribute('catPos', 'vec3'), attribute('part', 'float'), attribute('anchor', 'vec3'), attribute('region', 'vec4'), attribute('catW', 'float'))
+  // shade is Shadow's tint: color·a + rgb
+  return catColor(catPos, part, anchor, region, catW)
     .mul(shade.a).add(shade.rgb);
 }
 
-export function furMaterial(colors, LAND, params = {}) {
+// Shadow's projection of a layer of the cat, per vertex: fur-shadow.vert.glsl, whose comments explain it. shadow: see
+// fur.js. Sets the normal on the way, and gives where the point lands and its depth tint.
+function shadowNodes({ G, at, eye, half, tint, kata, ana }) {
+  const uG = uniform(G), uAt = uniform(at), biA = attribute('biA', 'vec3'), biB = attribute('biB', 'vec3');
+  const q = uG.mul(vec4(positionGeometry, attribute('catW', 'float')));
+  const gap = float(eye).sub(q.w), k = float(eye).div(max(gap, 0.3 * eye));
+  const col = i => {
+    const c = uG.element(i);
+    return c.xyz.add(q.xyz.mul(select(gap.greaterThan(0.3 * eye), k.div(eye), 0)).mul(c.w));
+  };
+  const position = Fn(() => {
+    const c0 = col(0).toVar(), c1 = col(1).toVar(), c2 = col(2).toVar(), c3 = col(3).toVar();
+    const n = cross(c0, c1).mul(biA.x).add(cross(c0, c2).mul(biA.y)).add(cross(c0, c3).mul(biA.z)).add(cross(c1, c2).mul(biB.x)).add(cross(c1, c3).mul(biB.y)).add(cross(c2, c3).mul(biB.z)).toVar();
+    normalLocal.assign(select(dot(n, n).lessThan(1e-12), vec3(0, 0, 1), n));   // a vertex with no triangles of its own isn't drawn
+    return uAt.add(q.xyz.mul(k));
+  })();
+  // dim and tinted kata, bright and tinted ana, as in depthTint (scenery.js)
+  const t = clamp(q.w.div(half).add(1).div(2), 0, 1), lum = t.mul(0.6).add(0.55), m = abs(t.mul(2).sub(1)).mul(tint);
+  const col4 = select(t.greaterThanEqual(0.5), vec3(ana.r, ana.g, ana.b), vec3(kata.r, kata.g, kata.b));
+  return { position, shade: varying(vec4(col4.mul(m).mul(lum), m.oneMinus().mul(lum))) };
+}
+
+export function furMaterial(colors, LAND, params = {}, shadow = null) {
   const m = new MeshStandardNodeMaterial({ roughness: 0.9, envMapIntensity: 0.6, ...params });
-  m.colorNode = catColorNode(colors, LAND);
+  if (shadow) {
+    const { position, shade } = shadowNodes(shadow);
+    m.positionNode = position;
+    m.colorNode = catColorNode(colors, LAND, { shade });
+  } else m.colorNode = catColorNode(colors, LAND);
   return m;
 }

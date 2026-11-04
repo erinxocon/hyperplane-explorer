@@ -6,7 +6,7 @@
 // takes (frame, mode, volOn, redraw, S, startJump, setVolume, frameOn). See CLAUDE.md, "Core model": controls and
 // frame ops act on S; drawing reads V.
 import * as THREE from 'three';
-import { add, mul, dot, lerp, ease, slerp } from './math4d.js';
+import { add, sub, mul, dot, lerp, ease, slerp } from './math4d.js';
 import { createViewer, bindControls } from './viewer.js';
 import { $, reduceMotion, LIGHT } from './utils.js';
 import { createFloor, createMarker } from './scenery.js';
@@ -63,9 +63,11 @@ export function createWalker({ viewDesc = {}, hint = '', floorY = -2.4, floor: f
   stage.note = () => (VOL.on ? VOL_DESC : '');
   // V shares P, R and F with S. Volume view turns it 90° in the U–A plane (U → A, A → −U), so the slice lies level, w
   // shows as up and your own frame, with U locked to world y, is never touched. It is set once per redraw.
-  let V = S, dirty = true, jump = null, world = [];
+  let V = S, dirty = true, full = true, jump = null, world = [], built = null;
   const frame = () => V;
-  const redraw = () => { dirty = true; };
+  // redraw: something about the world changed, so build it again. moved: only you moved, which rebuild may draw by sliding.
+  const redraw = () => { dirty = full = true; };
+  const moved = () => { dirty = true; };
 
   /* ---------- views and camera ---------- */
   // turn the camera to 4D point `center` (followed as you move), from a set direction, `scale` times the usual distance
@@ -117,17 +119,34 @@ export function createWalker({ viewDesc = {}, hint = '', floorY = -2.4, floor: f
       for (const k of ['R', 'F', 'A']) S[k] = planeRot(T[k], T.A, T.v, T.theta * e);
       if (jump.t >= 1) { you.orthonormalize(); snapFrame(); }
     }
-    redraw();
+    moved();
     if (jump.t >= 1) jump = null;
   }
 
   /* ---------- the world and the loop ---------- */
   const readout = createReadout();
-  // redraw every entry of the world for your display frame
+  // Redraw every entry of the world for your display frame. When you have only moved, with your frame as it was, an
+  // entry with o.shifts (its drawing is all in o.group, and P only places it) needn't be built: Shadow is relative to the
+  // shape's center and Stack cuts at places relative to the shape, so both just slide, and so does Slice as long as you
+  // stay in the same hyperplane. Its range and focus are measured from you, so they move too.
+  const sameDirs = (a, b) => ['R', 'U', 'F', 'A'].every(k => a[k].every((x, i) => Math.abs(x - b[k][i]) < 1e-12));
+  function slide(o) {
+    const d = dot(sub(V.P, o.built.P), V.A);
+    o.group.position.copy(local(V, o.built.P));
+    o.range = [o.built.range[0] - d, o.built.range[1] - d];
+    if (o.built.focus != null) o.focus = o.built.focus - d;
+  }
   function rebuild() {
     V = you.frame();
-    const ctx = { mode: stage.mode(), labels: stackLabels(VOL.on), spinM: hooks.spinM?.() ?? null };
-    for (const o of world) o.build(V, ctx);
+    const mode = stage.mode(), same = !full && built?.mode === mode && sameDirs(V, built);
+    full = false;
+    const ctx = { mode, labels: stackLabels(VOL.on), spinM: hooks.spinM?.() ?? null };
+    for (const o of world) {
+      if (same && o.shifts && (mode !== 'slice' || Math.abs(dot(sub(V.P, o.built.P), V.A)) < 1e-12)) { slide(o); continue; }
+      o.build(V, ctx);
+      if (o.shifts) { o.group.position.set(0, 0, 0); o.built = { P: V.P.slice(), range: o.range.slice(), focus: o.focus }; }
+    }
+    if (!same) built = { mode, R: V.R.slice(), U: V.U.slice(), F: V.F.slice(), A: V.A.slice() };
     floor.update(V, floorY);
     readout(V, S.P);
     hooks.update?.(V);
@@ -141,7 +160,7 @@ export function createWalker({ viewDesc = {}, hint = '', floorY = -2.4, floor: f
   function run(list, h = {}) {
     world = list; hooks = h;
     // the movement keys and on-screen keys (viewer.js), acting on S; the view keys are the stage's, V is here
-    const keys = bindControls({ act: (code, amount) => { you.act(code, amount); redraw(); } });
+    const keys = bindControls({ act: (code, amount) => { you.act(code, amount); moved(); } });
     window.addEventListener('keydown', e => {
       if (e.metaKey || e.ctrlKey || e.altKey) return;
       if (e.code === 'KeyV' && !e.repeat) setVolume(!VOL.on);

@@ -13,11 +13,23 @@ for (const page_ of ['index', 'rubik', 'chess', 'cat']) {
     await expect(page.locator('#view canvas').first()).toBeVisible();
     await page.waitForTimeout(1500);
     expect(await page.evaluate(() => window.__renderer.isWebGPURenderer)).toBe(true);
+    // WebGPU allows 8 vertex buffers per pipeline and this backend allows more, so count what each draw binds
+    await page.evaluate(() => {
+      const backend = window.__renderer.backend, draw = backend.draw;
+      window.__maxBuffers = { count: 0, what: '' };
+      backend.draw = function (ro, info) {
+        const n = ro.getVertexBuffers().length;
+        if (n > window.__maxBuffers.count) window.__maxBuffers = { count: n, what: Object.keys(ro.geometry.attributes).join() };
+        return draw.call(this, ro, info);
+      };
+    });
     for (const key of ['Digit2', 'Digit3', 'Digit1']) {
       await page.keyboard.press(key);
       await page.waitForTimeout(1500);
       await page.screenshot({ path: `test-results/webgpu-${page_}-${key}.png` });
     }
     expect(errors).toEqual([]);
+    const most = await page.evaluate(() => window.__maxBuffers);
+    expect(most.count, `vertex buffers: ${most.what}`).toBeLessThanOrEqual(8);
   });
 }
