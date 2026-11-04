@@ -45,6 +45,7 @@ export function createWorld(scene, BG) {
     o.group = new THREE.Group();
     scene.add(o.group);
     kindOf(o)(o);
+    o.shifts = !o.globe;   // the walker may slide its group when you walk (Earth's ray-caster reads where you are instead)
   }
   return WORLD;
 }

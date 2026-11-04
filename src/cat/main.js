@@ -15,16 +15,19 @@ import { add, sub, mul, dot, rot, mm, mv } from '../math4d.js';
 import { tesseract } from '../shapes/shapes.js';
 import { createWalker } from '../walk.js';
 import { roomEnvironment } from '../environment.js';
-import { $, reduceMotion, press, onButton } from '../utils.js';
-import { tok, depthShade, depthTint, tubeMatrix, knobMatrix } from '../scenery.js';
+import { $, GPU, reduceMotion, press, onButton } from '../utils.js';
+import { tok, depthShade, TINT, tubeMatrix, knobMatrix } from '../scenery.js';
 import { drawRulerRow, stackOffs, toScreen } from '../hud.js';
 import { buildCat, HEIGHT, LAND, PART } from './model.js';
 import { furMaterial } from './fur.js';
-import { inView, frameMatrix, thickSlice, screenSlice, screenShadow, roundCutter, roundRange, roundLayer } from './slice4d.js';
+import { inView, frameMatrix, thickSlice, screenSlice, screenShadow, roundCutter, roundRange, roundLayer, layerBivectors } from './slice4d.js';
 import { buildTV, TV } from './tv.js';
 import { SPINS, FACE, BEST, FRAMES, CROSS, pose, filmAngles, trail } from './spins.js';
 import { BEATS_PER_SECOND, songClock, songAngle, phaseError, lockStep } from './beat.js';
 import './cat.css';
+
+// on real WebGPU the cat is cut on the GPU; anywhere else, by roundCutter
+const cutTSL = GPU ? await import('./shaders/cut.tsl.js') : null;
 
 const FLOOR_Y = -2.4, EYE_CAT = 4, EYE_TV = 4.5, ANT = 0.3, AHEAD = 6.5;   // AHEAD: how far Best view stands you from the cat
 // Both face where you start (FACE, in spins.js): their own +z points along world −z.
@@ -118,6 +121,7 @@ function main() {
   const CARRY = ['catPos', 'anchor', 'region', 'part'];
   const cutter = roundCutter(round, CARRY.map(k => ({ array: CA(k).array, size: CA(k).itemSize })));
   const catMat = furMaterial(fur), catCuts = [];   // made as needed: Stack uses three, the axis cross four, the film strip eight
+  let gpuCutter = null;   // the source mesh on the GPU, once the first cut is wanted (the backend is known by then)
   function cutMesh(c) {   // a mesh on c's buffers, made again when they grow
     const o = c.out, g = new THREE.BufferGeometry(), dyn = (a, size) => new THREE.BufferAttribute(a, size).setUsage(THREE.DynamicDrawUsage);
     g.setAttribute('position', dyn(o.pos, 3));
@@ -130,7 +134,18 @@ function main() {
     else { c.mesh = new THREE.Mesh(g, catMat); c.mesh.frustumCulled = false; scene.add(c.mesh); }
     o.grown = false;
   }
-  const cutAt = i => { if (!catCuts[i]) { catCuts[i] = { out: cutter.output(), mesh: null, key: '' }; cutMesh(catCuts[i]); } return catCuts[i]; };
+  const cutAt = i => {
+    if (catCuts[i]) return catCuts[i];
+    if (cutTSL && renderer.backend.isWebGPUBackend) {
+      gpuCutter ||= cutTSL.createGpuCutter(renderer, round, { anchor: CA('anchor').array, region: CA('region').array, part: CA('part').array });
+      const gpu = gpuCutter.createCut(fur, LAND);
+      scene.add(gpu.mesh);
+      return (catCuts[i] = { gpu, mesh: gpu.mesh, key: '' });
+    }
+    catCuts[i] = { out: cutter.output(), mesh: null, key: '' };
+    cutMesh(catCuts[i]);
+    return catCuts[i];
+  };
   // show cut c of the cat at `off` ana of its center, seen through G, centered at (x, y, z); off = null hides it
   function drawCut(c, G, off, x, y, z) {
     c.mesh.visible = off !== null;
@@ -139,6 +154,7 @@ function main() {
     const key = G.join() + '|' + off;
     if (key === c.key) return;   // nothing has moved
     c.key = key;
+    if (c.gpu) { c.gpu.cut(G, off); return; }
     const o = cutter.cut(G, off, c.out);
     if (o.grown) cutMesh(c);
     const g = c.mesh.geometry;
@@ -166,8 +182,10 @@ function main() {
 
   /* ---------- Shadow ---------- */
   // Three of the cat's layers in w: its middle, and see-through ones at w = ±LAYER_W (only the parts that reach that
-  // far). Every vertex is projected from an eye EYE_CAT ana of the cat's center and tinted by depth.
+  // far). Every vertex is projected from an eye EYE_CAT ana of the cat's center and tinted by depth, in the vertex shader,
+  // so a frame only sets catShadow.G and .at.
   const LAYER_W = 0.25;
+  const catShadow = { G: new THREE.Matrix4(), at: new THREE.Vector3(), eye: EYE_CAT, half: HEIGHT / 2, tint: TINT, kata: new THREE.Color(tok('--kata')), ana: new THREE.Color(tok('--ana')) };
   const catLayers = [0, LAYER_W, -LAYER_W].map(w => {
     const g = cat.clone(), ix = cat.index.array, reaches = i => round.r[i] >= Math.abs(w);
     if (w) {
@@ -175,27 +193,23 @@ function main() {
       for (let t = 0; t < ix.length; t += 3) if (reaches(ix[t]) && reaches(ix[t + 1]) && reaches(ix[t + 2])) keep.push(ix[t], ix[t + 1], ix[t + 2]);
       g.setIndex(keep);
     }
-    const p4 = roundLayer(round, w);
-    g.setAttribute('catW', new THREE.Float32BufferAttribute(p4.filter((_, i) => i % 4 === 3), 1));   // for the coat's 4D pattern
-    const mesh = new THREE.Mesh(g, furMaterial(fur, w ? { side: THREE.DoubleSide, transparent: true, opacity: 0.3, depthWrite: false } : { side: THREE.DoubleSide }));
+    // the layer's 4D point is (position, catW), for the projection and the coat's 4D pattern, and never changes
+    const p4 = roundLayer(round, w), n = p4.length / 4, P = g.getAttribute('position').array, W = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+      for (let q = 0; q < 3; q++) P[3 * i + q] = p4[4 * i + q];
+      W[i] = p4[4 * i + 3];
+    }
+    g.setAttribute('catW', new THREE.BufferAttribute(W, 1));
+    // one buffer for the two halves of the bivector: WebGPU allows 8 vertex buffers, and this makes it exactly 8
+    const bi = new THREE.InterleavedBuffer(layerBivectors(p4, g.index.array), 6);
+    g.setAttribute('biA', new THREE.InterleavedBufferAttribute(bi, 3, 0));
+    g.setAttribute('biB', new THREE.InterleavedBufferAttribute(bi, 3, 3));
+    g.deleteAttribute('shade');
+    const mesh = new THREE.Mesh(g, furMaterial(fur, w ? { side: THREE.DoubleSide, transparent: true, opacity: 0.3, depthWrite: false } : { side: THREE.DoubleSide }, catShadow));
     mesh.frustumCulled = false;
     scene.add(mesh);
-    return { mesh, p4, pos: g.getAttribute('position'), shade: g.getAttribute('shade') };
+    return { mesh };
   });
-  function drawCatShadow({ mesh, p4, pos, shade }, G, at) {
-    const P = pos.array, Sh = shade.array;
-    for (let i = 0, j = 0; i < P.length; i += 3, j += 4) {
-      const x = p4[j], y = p4[j + 1], z = p4[j + 2], w = p4[j + 3];
-      const a = G[12] * x + G[13] * y + G[14] * z + G[15] * w, k = EYE_CAT / Math.max(0.3 * EYE_CAT, EYE_CAT - a);
-      P[i] = at[0] + (G[0] * x + G[1] * y + G[2] * z + G[3] * w) * k;
-      P[i + 1] = at[1] + (G[4] * x + G[5] * y + G[6] * z + G[7] * w) * k;
-      P[i + 2] = at[2] + (G[8] * x + G[9] * y + G[10] * z + G[11] * w) * k;
-      const t = THREE.MathUtils.clamp((a / (HEIGHT / 2) + 1) / 2, 0, 1), lum = 0.55 + 0.6 * t, { color: tint, amount: m } = depthTint(t);
-      Sh[j] = tint.r * m * lum; Sh[j + 1] = tint.g * m * lum; Sh[j + 2] = tint.b * m * lum; Sh[j + 3] = (1 - m) * lum;
-    }
-    pos.needsUpdate = shade.needsUpdate = true;
-    mesh.geometry.computeVertexNormals();
-  }
   // The TV and the antenna tesseract as tubes, from an eye EYE_TV ana of the TV's center; dim (kata) to bright (ana).
   const TUBE = new THREE.CylinderGeometry(1, 1, 1, 10, 1, true), KNOB = new THREE.SphereGeometry(1, 14, 10);
   const wireMat = new THREE.MeshStandardMaterial({ roughness: 0.3, metalness: 0.5 });
@@ -318,7 +332,8 @@ function main() {
       const shown = new Set(), show = (G4, off, x, y, z) => { shown.add(used); drawCut(cutAt(used++), G4, off, x, y, z); };
       tagSpots = [];
       if (mode === 'shadow') {
-        for (const l of catLayers) drawCatShadow(l, G, at);
+        catShadow.G.set(...G);
+        catShadow.at.set(at[0], at[1], at[2]);
         if (ST.trails) drawTrails(V, G, at, drift);
       } else if (layout === 'cross') {
         // each panel cuts through the cat's center at rest, in its own frame, laid out side by side about where it stands
