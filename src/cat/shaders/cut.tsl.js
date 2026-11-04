@@ -177,6 +177,12 @@ export function createGpuCutter(renderer, src, carry) {
       mesh, passes, indirect, itemsAttr, vertexOf,
       // cut again: G is row-major, as the JS cutter takes it
       cut(g4, off) { G.set(...g4); uOff.value = off; renderer.compute(passes); },
+      // the shaders this cut compiles to, for reading. The compute passes have no public call, so this reaches into three.
+      async wgsl(scene, camera) {
+        const { vertexShader: vertex, fragmentShader: fragment } = await renderer.debug.getShaderAsync(scene, camera, mesh);
+        const [resetPass, masksPass, emitPass] = passes.map(p => renderer._nodes.getForCompute(p).computeShader);
+        return { reset: resetPass, masks: masksPass, emit: emitPass, vertex, fragment };
+      },
     };
   }
   return { createCut, maskAttr };
